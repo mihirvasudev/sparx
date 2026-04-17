@@ -245,6 +245,49 @@ tool_definitions <- function() {
       )
     ),
     list(
+      name = "run_in_session",
+      description = paste0(
+        "Execute R code in the USER'S LIVE R session (.GlobalEnv). Effects ",
+        "persist — dataframes, variables, and loaded libraries will be visible ",
+        "in RStudio's Environment pane afterwards. Use this for operations ",
+        "the user needs to carry forward (loading data, transforming a ",
+        "dataframe, fitting a model). Returns captured stdout/stderr and any ",
+        "error message. ",
+        "\n\n",
+        "Blocked for safety: file deletion, system() calls, clearing the ",
+        "environment (rm(list=ls())), and a few other destructive patterns. ",
+        "For anything potentially destructive, explain it in the chat and let ",
+        "the user click Run on a code block instead.",
+        "\n\n",
+        "Use `run_r_preview` first to verify the code works, THEN use ",
+        "`run_in_session` to commit it to the user's session."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          code = list(
+            type = "string",
+            description = "R code to execute in the live session"
+          )
+        ),
+        required = list("code")
+      )
+    ),
+    list(
+      name = "get_session_state",
+      description = paste0(
+        "Get a summary of the current state of the user's R session: all ",
+        "objects in .GlobalEnv (not just dataframes), their classes, and ",
+        "shapes. Use this to check what variables exist after running code, ",
+        "or to diagnose 'object not found' errors."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(),
+        required = list()
+      )
+    ),
+    list(
       name = "todo_write",
       description = paste0(
         "Update a todo list visible to the user, tracking multi-step work. ",
@@ -333,6 +376,8 @@ execute_tool <- function(name, input) {
       "inspect_plot" = tool_inspect_plot(),
       "install_packages" = tool_install_packages(input$packages),
       "todo_write" = tool_todo_write(input$todos),
+      "run_in_session" = tool_run_in_session(input$code),
+      "get_session_state" = tool_get_session_state(),
       paste0("ERROR: unknown tool `", name, "`")
     )
   }, error = function(e) {
@@ -948,3 +993,184 @@ tool_todo_write <- function(todos) {
 # Package-level todo state (read by the UI)
 .sparx_todo_state <- new.env(parent = emptyenv())
 .sparx_todo_state$items <- list()
+
+# ── Live-session execution ─────────────────────────────────────────────────
+
+#' Patterns blocked from live execution (destructive)
+#'
+#' These are matched as regexes against the user's code. If any match, the
+#' tool refuses to run and explains to Claude.
+#' @keywords internal
+DESTRUCTIVE_PATTERNS <- c(
+  # File deletion
+  "\\bfile\\.remove\\s*\\(",
+  "\\bunlink\\s*\\(",
+  "\\bfs::file_delete\\s*\\(",
+  "\\bfs::dir_delete\\s*\\(",
+  # Environment clearing
+  "\\brm\\s*\\(\\s*list\\s*=\\s*ls\\b",
+  # System shell
+  "\\bsystem\\s*\\(",
+  "\\bsystem2\\s*\\(",
+  "\\bshell\\s*\\(",
+  "\\bshell\\.exec\\s*\\(",
+  # Network/source injection
+  "\\bsource\\s*\\(\\s*[\"']http",
+  "\\bdownload\\.file\\s*\\(",
+  # Forced package ops
+  "\\bremove\\.packages\\s*\\(",
+  "\\bdevtools::install_local\\s*\\(",
+  # User-account ops
+  "\\bSys\\.setenv\\s*\\(",
+  # DB destruction
+  "\\bdbRemoveTable\\s*\\(",
+  # RStudio-API code-injection
+  "\\brstudioapi::(sendToConsole|executeCommand)\\s*\\("
+)
+
+#' Check code against the destructive blocklist
+#'
+#' @return Matched pattern if code is blocked, NULL if safe
+#' @keywords internal
+check_destructive_patterns <- function(code) {
+  if (is.null(code) || !nzchar(code)) return(NULL)
+  for (pat in DESTRUCTIVE_PATTERNS) {
+    if (grepl(pat, code, perl = TRUE)) return(pat)
+  }
+  NULL
+}
+
+#' Execute R code in the user's live session (.GlobalEnv)
+#'
+#' Captures stdout, stderr, warnings, and errors. Code runs in .GlobalEnv,
+#' so variable assignments and library() calls persist for the user.
+#'
+#' Blocked destructive patterns: see DESTRUCTIVE_PATTERNS.
+#' Live execution is gated by options(sparx.live_execution = TRUE) — OFF by
+#' default for safety. If disabled, returns an instruction message so Claude
+#' can present the code for the user to Run manually.
+#'
+#' @keywords internal
+tool_run_in_session <- function(code) {
+  if (is.null(code) || !nzchar(code)) return("ERROR: code is required.")
+
+  # Gate: user must opt in
+  enabled <- getOption("sparx.live_execution", FALSE)
+  if (!isTRUE(enabled)) {
+    return(paste0(
+      "Live execution is not enabled. The user has not opted in with ",
+      "`options(sparx.live_execution = TRUE)`. Present the code as a ",
+      "code block in your response so they can click Run themselves, ",
+      "or ask them to enable live execution."
+    ))
+  }
+
+  # Safety: check for destructive patterns
+  matched <- check_destructive_patterns(code)
+  if (!is.null(matched)) {
+    return(paste0(
+      "REFUSED: code contains a destructive pattern (", matched, "). ",
+      "sparx will not run this in the user's live session. If they want ",
+      "to run it, they should do so manually or outside sparx."
+    ))
+  }
+
+  start <- Sys.time()
+
+  # Use a dedicated env for capturing — avoids the <<- scope issue where
+  # assignments inside withCallingHandlers don't reach the calling frame.
+  capture_env <- new.env(parent = emptyenv())
+  capture_env$output_lines <- character()
+  capture_env$warnings <- character()
+  capture_env$error <- NULL
+
+  result <- tryCatch(
+    withCallingHandlers(
+      {
+        captured <- utils::capture.output(
+          eval(parse(text = code), envir = globalenv()),
+          type = "output",
+          split = FALSE
+        )
+        capture_env$output_lines <- c(capture_env$output_lines, captured)
+        "ok"
+      },
+      warning = function(w) {
+        capture_env$warnings <- c(capture_env$warnings, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      },
+      message = function(m) {
+        msg <- sub("\n$", "", conditionMessage(m))
+        capture_env$output_lines <- c(capture_env$output_lines, msg)
+        invokeRestart("muffleMessage")
+      }
+    ),
+    error = function(e) {
+      capture_env$error <- conditionMessage(e)
+      "error"
+    }
+  )
+
+  duration <- round(as.numeric(Sys.time() - start, units = "secs"), 2)
+
+  parts <- character()
+  if (length(capture_env$output_lines) > 0) {
+    out_text <- paste(capture_env$output_lines, collapse = "\n")
+    if (nchar(out_text) > 4000) {
+      out_text <- paste0(substr(out_text, 1, 4000), "\n... [truncated]")
+    }
+    parts <- c(parts, paste0("Output:\n", out_text))
+  }
+  if (length(capture_env$warnings) > 0) {
+    parts <- c(parts,
+      paste0("Warnings:\n- ", paste(capture_env$warnings, collapse = "\n- ")))
+  }
+  if (!is.null(capture_env$error)) {
+    return(paste0("ERROR: ", capture_env$error, "\n(ran for ", duration, "s)"))
+  }
+  if (length(parts) == 0) {
+    parts <- "(code ran successfully with no printed output)"
+  }
+  paste0(paste(parts, collapse = "\n\n"), "\n\n(ran in ", duration, "s; session state updated)")
+}
+
+#' Summarize the user's current .GlobalEnv
+#'
+#' Returns class, length/dim, and a short summary for each object.
+#' @keywords internal
+tool_get_session_state <- function() {
+  obj_names <- ls(envir = .GlobalEnv)
+  if (length(obj_names) == 0) {
+    return("(.GlobalEnv is empty)")
+  }
+
+  lines <- character()
+  for (n in obj_names) {
+    obj <- tryCatch(get(n, envir = .GlobalEnv), error = function(e) NULL)
+    if (is.null(obj)) next
+    cls <- paste(class(obj), collapse = "/")
+    shape <- tryCatch({
+      if (is.data.frame(obj)) {
+        paste0(nrow(obj), "x", ncol(obj), " df (cols: ",
+               paste(utils::head(names(obj), 5), collapse = ","),
+               if (ncol(obj) > 5) ",..." else "",
+               ")")
+      } else if (is.matrix(obj)) {
+        paste0(nrow(obj), "x", ncol(obj), " matrix")
+      } else if (is.list(obj)) {
+        paste0("list, length ", length(obj))
+      } else if (is.atomic(obj)) {
+        if (length(obj) == 1) paste0("scalar: ", format(obj, trim = TRUE))
+        else paste0("length ", length(obj))
+      } else {
+        paste0("class: ", cls)
+      }
+    }, error = function(e) cls)
+    lines <- c(lines, sprintf("- %s <%s>: %s", n, cls, shape))
+  }
+
+  paste0(
+    "Objects in .GlobalEnv (", length(obj_names), "):\n",
+    paste(lines, collapse = "\n")
+  )
+}

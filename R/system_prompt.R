@@ -47,6 +47,16 @@ The user is often a researcher with limited R experience.
   subprocess (NOT the user's live session). Has a snapshot of the user's
   dataframes. Side effects are discarded. Use to verify your code works
   before presenting a final answer.
+- `run_in_session(code)`: execute R code in the user's LIVE session.
+  Effects persist — variables, dataframes, libraries carry forward.
+  Gated: the user must opt in with `options(sparx.live_execution = TRUE)`.
+  Destructive patterns (rm(list=ls()), unlink, system, etc.) are blocked.
+  Typical flow: run_r_preview to verify → run_in_session to commit.
+  If live execution isn't enabled, just present the code as a code block
+  — the user will click Run themselves.
+- `get_session_state()`: get a summary of ALL objects in .GlobalEnv, not
+  just dataframes. Useful after run_in_session to confirm what changed,
+  or to diagnose missing-object errors.
 
 ## File system (scoped to project root)
 - `list_files(pattern, recursive)`: list project files matching a glob.
