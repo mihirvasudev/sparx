@@ -1,21 +1,25 @@
 # sparx
 
-> AI pair-programmer for RStudio. Describe what you want in English; sparx writes the R.
+> **Claude Code-style AI pair-programmer for RStudio.** Describe what you want in English. sparx reads your data, writes the code, runs it, fixes errors, and hands you a verified result.
 
-[![R-CMD-check](https://img.shields.io/badge/R%20package-0.1.0-blue.svg)](https://github.com/sparsilex/sparx)
+[![R package](https://img.shields.io/badge/R%20package-0.7.0-blue.svg)](https://github.com/sparsilex/sparx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-## What it does
+## What it is
 
-sparx is an RStudio addin that brings Claude-powered pair-programming directly into your IDE. It reads your open script, your active dataframes, and your loaded packages — then generates R code you can insert or run with one click.
+sparx is an RStudio addin that brings an **agentic AI assistant** into your IDE. Unlike autocomplete tools, sparx has **19 tools** for reading your data, your files, your R session, the web, and git — and it uses them iteratively to ship a working answer.
 
-Specialized for **statistical workflows in medical and biomedical research**:
+Specialized for **statistical workflows in medical and biomedical research**.
 
-- Pick and run the right statistical test for your data
-- Check assumptions before analyses
-- Write `lme4`, `survival`, `lavaan`, `BayesFactor` code without memorizing APIs
-- Debug errors by reading the full script context
-- Explain complex code in plain English
+## What makes it different
+
+- **Agentic loop, not just autocomplete** — sparx can inspect, plan, run, verify, and iterate in a single turn
+- **Reads your session** — current dataframes, loaded packages, open scripts, plot output
+- **Project-aware file system** — list/read/grep across your project; targeted edits with visible diffs
+- **Runs code two ways** — sandboxed preview for verification, live session (opt-in) for state changes
+- **Statistical rigor baked in** — system prompt enforces assumption checks, effect sizes, idiomatic R
+- **Everything stays local** — BYOK (your Anthropic key), system-keyring storage, no sparx-owned servers
+- **Conversations persist** — resume where you left off, per project
 
 ## Install
 
@@ -26,89 +30,122 @@ remotes::install_github("sparsilex/sparx")
 
 ## Setup
 
-1. Get an Anthropic API key from [console.anthropic.com](https://console.anthropic.com).
+1. Get an Anthropic API key: [console.anthropic.com](https://console.anthropic.com)
 
-2. Store it securely (one-time setup):
-
+2. Store it securely (one-time):
    ```r
    sparx::set_api_key()
-   # You'll be prompted to paste your key — it's stored in your system keyring
+   # Prompts for your key; saved in your system keyring
    ```
 
-3. Open RStudio. You'll see **sparx** entries under **Addins**:
-   - **Open sparx Chat** — the main chat panel
-   - **Explain Selection** — select code, run this to get a plain-English walkthrough
-   - **Fix Selection** — AI diagnoses and fixes the selected code
-   - **Improve Selection** — idiomatic rewrite of the selected code
+3. Open RStudio → **Addins** → **Open sparx Chat**
+   - Or bind `Cmd+Shift+A` via **Tools → Modify Keyboard Shortcuts**
 
-4. (Optional) Bind **Open sparx Chat** to a keyboard shortcut via **Tools → Modify Keyboard Shortcuts** (try `Cmd+Shift+A`).
+4. Optional: grant advanced capabilities via the toggles in the chat header
+   - **Live exec** — sparx can run code in your real R session (destructive patterns still blocked)
+   - **Auto-install** — sparx can run `install.packages()` on your behalf
+   - **Git writes** — sparx can create git commits (never auto-pushed)
 
-## Using sparx
+## The 19 tools
 
-### Main chat
+### Session & data
+| Tool | What it does |
+|------|---|
+| `inspect_data` | Structure + sample rows of a dataframe |
+| `check_package` | Confirm a package is installed + version |
+| `read_editor` | Read lines from the active editor |
+| `run_r_preview` | Execute code in an isolated subprocess (safe preview) |
+| `run_in_session` | Execute code in your live R session (opt-in) |
+| `get_session_state` | Summary of all `.GlobalEnv` objects |
+| `inspect_plot` | See the current plot using Claude's vision |
 
-Click **Addins → Open sparx Chat** (or press your keybinding). A chat panel opens in the Viewer pane.
+### File system (project-scoped)
+| Tool | What it does |
+|------|---|
+| `list_files` | Glob-match files in the project |
+| `read_file` | Read a text file with line numbers |
+| `grep_files` | Regex search across the project |
+| `write_file` | Create a new file |
+| `edit_file` | Targeted find-and-replace with a visible +/- diff |
 
-Type a request:
+### Git
+| Tool | What it does |
+|------|---|
+| `git_status` | Short status + branch |
+| `git_diff` | Working-tree or staged diff |
+| `git_log` | Recent commits (oneline) |
+| `git_commit` | Create a commit (opt-in) |
 
-> fit a mixed-effects model for bp_reduction, with treatment and age as fixed effects and hospital_id as a random effect
+### Web + workflow
+| Tool | What it does |
+|------|---|
+| `fetch_url` | Fetch an HTTPS page and return cleaned text |
+| `install_packages` | Install from CRAN (opt-in) |
+| `todo_write` | Maintain a visible checklist for multi-step work |
 
-sparx will:
-1. Read your active dataframes and loaded packages
-2. Stream back an explanation + R code
-3. Show **Insert** / **Run** / **Copy** buttons on each code block
+## Example: worked session
 
-Click **Insert** to place the code at your cursor; **Run** to execute it in your R console; **Copy** to clipboard.
+> "Fit a mixed-effects model on trial_data where bp_reduction depends on treatment and age, with hospital_id as a random effect. Check assumptions and report properly."
 
-### Fixing errors
+sparx:
+1. **inspect_data(trial_data)** — "150 rows × 8 cols, treatment is a 2-level factor, bp_reduction is numeric..."
+2. **check_package("lme4")** — "installed, v1.1.35.5"
+3. **run_r_preview** — verifies `lmer(bp_reduction ~ treatment + age + (1|hospital_id), data = trial_data)` runs without error
+4. **run_r_preview** — runs `performance::check_model(model)` to validate assumptions
+5. **inspect_plot** — reads the diagnostic plots; flags one outlier in the QQ plot
+6. Presents: a 3-sentence explanation + one code block with Insert / Run / Copy buttons
 
-Select the line that errored (or the whole broken function), right-click, and choose **sparx → Fix Selection**. sparx reads the code + any surrounding context and proposes a fix.
+Click Run → result appears in your R console. Typical cost: **$0.005–$0.02 per message** on Claude Sonnet.
 
-### Keyboard shortcuts
+## Right-click actions
 
-In the chat input, press **Cmd/Ctrl + Enter** to send.
+Select any code in your editor, right-click, and pick:
+- **Explain Selection** — plain-English walkthrough of the code
+- **Fix Selection** — sparx diagnoses what's wrong and patches it
+- **Improve Selection** — rewrite in idiomatic tidyverse R
 
-## Context sparx sees
+## Keyboard
 
-On every request, sparx reads:
+In the chat input:
+- `Cmd/Ctrl + Enter` — send
 
-- Your current editor document (path + content)
-- Cursor position and any selection
-- Every dataframe in your global environment (name, row/col counts, column types — **not** the actual data rows)
-- Currently loaded packages
-- R version
+## Privacy & security
 
-Your **data is never sent** — only schemas. Code in the editor is sent as context.
+- Your API key is stored in your **system keyring** (macOS Keychain / Windows Credential Locker / gnome-keyring) via the `keyring` package. Never touches disk as plaintext.
+- Requests go directly from your machine to `api.anthropic.com`. No sparx server involved.
+- Dataframe **rows are never sent** — only column names, types, and dimensions. (Exception: if you explicitly ask sparx to write code that references specific values.)
+- Code in your editor **is** sent as context (that's the whole point). Don't use sparx on sensitive/proprietary code you don't want Anthropic to see.
+- File writes are scoped to the project root — sparx will refuse `..` traversal or absolute paths outside the project.
+- Live execution blocks destructive patterns: `file.remove`, `unlink`, `rm(list=ls())`, `system()`, `source("http...")`, etc.
+- Three opt-in toggles (Live exec, Auto-install, Git writes) are all **default off**.
 
-## API costs
+## Conversations persist
 
-sparx uses Anthropic's API directly with your own key. Typical usage:
+Your chat history is saved to `<project>/.sparx/conversation.json` and automatically reloaded when you open the chat next time. An `.sparx/.gitignore` is written to ensure conversations don't leak into commits.
 
-- Each request sends ~1K-4K input tokens (script + context + system prompt)
-- Generates ~200-600 output tokens per response
-- At Claude Sonnet 4.6 pricing (~$3/MTok in, $15/MTok out), that's roughly **$0.005-0.02 per message**
-- A typical 30-minute research session: **$0.15-0.50**
+Clear a conversation with the "Clear" button in the chat header.
 
-Switch to a cheaper model any time:
+## Typical costs
 
+| Model | ~Cost per message |
+|---|---|
+| claude-sonnet-4-5 (default) | $0.005 – $0.02 |
+| claude-haiku-4-5 | $0.001 – $0.004 |
+
+Switch model:
 ```r
 options(sparx.model = "claude-haiku-4-5-20251001")
 ```
 
-## Privacy
-
-- Your API key is stored in your **system keyring** (macOS Keychain, Windows Credential Locker, gnome-keyring on Linux) via the `keyring` package. It never touches disk in plaintext.
-- All API requests go directly from your machine to Anthropic. No sparx-owned servers involved.
-- Data in your dataframes is **not** sent — only column names, types, and dimensions.
-- Your code **is** sent to Anthropic as context. If that's unacceptable for your use case, don't use sparx on sensitive code.
+A 30-minute research session with 20–30 tool calls: typically $0.20–$0.80.
 
 ## Contributing
 
-PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup.
+PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup. Tests run with `devtools::test()` — 236+ assertions across 8 test files.
 
 Related:
-- [SparsileX](https://github.com/sparsilex/sparsilex) — the standalone AI-native stats web app that sparx is an extension of
-- Inspired by [Clicky](https://github.com/farzaa/clicky) — Farza's AI screen companion
+- [SparsileX](https://github.com/sparsilex/sparsilex) — the standalone AI-native stats web app
+- Inspired by [Clicky](https://github.com/farzaa/clicky) and [Claude Code](https://claude.com/claude-code)
 
 ## License
 
