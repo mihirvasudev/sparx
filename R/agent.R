@@ -10,7 +10,16 @@
 #' UI callbacks let the chat gadget stream text and show tool activity
 #' as it happens.
 
-MAX_AGENT_ITERATIONS <- 8L
+MAX_AGENT_ITERATIONS <- 12L
+
+#' Check whether a tool result looks like an error
+#' @keywords internal
+is_tool_error <- function(result) {
+  if (is.null(result)) return(FALSE)
+  s <- as.character(result)
+  # Heuristic: starts with "ERROR:" or contains explicit error markers
+  grepl("^ERROR:|^ERROR executing|\\bError in\\b", s, perl = TRUE)
+}
 
 #' Run the agentic loop for one user turn
 #'
@@ -70,11 +79,13 @@ run_agentic_turn <- function(messages,
     tool_results <- list()
     for (call in tool_calls) {
       result <- execute_tool(call$name, call$input)
+      err <- is_tool_error(result)
       on_tool_result(call$name, call$id, result)
       tool_results[[length(tool_results) + 1]] <- list(
         type = "tool_result",
         tool_use_id = call$id,
-        content = result
+        content = result,
+        is_error = err
       )
     }
 

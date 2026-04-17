@@ -349,7 +349,12 @@ pretty_tool_name <- function(name) {
     inspect_data = "Inspecting data",
     run_r_preview = "Running R code (preview)",
     check_package = "Checking package",
-    read_editor = "Reading editor"
+    read_editor = "Reading editor",
+    list_files = "Listing files",
+    read_file = "Reading file",
+    grep_files = "Searching files",
+    write_file = "Writing file",
+    edit_file = "Editing file"
   )
   lbl <- labels[name]
   if (is.na(lbl)) name else unname(lbl)

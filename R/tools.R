@@ -20,6 +20,7 @@
 #' @keywords internal
 tool_definitions <- function() {
   list(
+    # ── Data & session ──────────────────────────────────
     list(
       name = "inspect_data",
       description = paste0(
@@ -106,6 +107,140 @@ tool_definitions <- function() {
         ),
         required = list("line_start")
       )
+    ),
+    # ── File system ─────────────────────────────────────
+    list(
+      name = "list_files",
+      description = paste0(
+        "List files in the project matching a glob pattern. Returns relative ",
+        "paths from the project root. Use to discover what's in the project ",
+        "before reading or editing files. Examples of pattern: '*.R', ",
+        "'data/*.csv', '**/*.Rmd' (recursive). Defaults to all files."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          pattern = list(
+            type = "string",
+            description = "Glob pattern (default: '*')"
+          ),
+          recursive = list(
+            type = "boolean",
+            description = "Search subdirectories too (default: TRUE)"
+          )
+        ),
+        required = list()
+      )
+    ),
+    list(
+      name = "read_file",
+      description = paste0(
+        "Read the contents of a file in the project. Only text files (R, Rmd, ",
+        "qmd, csv, md, txt, json, yaml, etc.) are readable. Binary files are ",
+        "refused. Returns file contents with line numbers. Use line_start/line_end ",
+        "to read a specific range of a large file."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          path = list(
+            type = "string",
+            description = "Path to file (relative to project root, or absolute inside root)"
+          ),
+          line_start = list(
+            type = "integer",
+            description = "Optional: first line to read"
+          ),
+          line_end = list(
+            type = "integer",
+            description = "Optional: last line to read"
+          )
+        ),
+        required = list("path")
+      )
+    ),
+    list(
+      name = "grep_files",
+      description = paste0(
+        "Search file contents across the project for a regex pattern. Returns ",
+        "matching files and matching lines with line numbers. Use this to find ",
+        "where a function is defined, where a variable is used, etc."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          pattern = list(
+            type = "string",
+            description = "Regex pattern to search for"
+          ),
+          file_glob = list(
+            type = "string",
+            description = "Optional: file glob to limit search (e.g., '*.R')"
+          ),
+          ignore_case = list(
+            type = "boolean",
+            description = "Case-insensitive match (default: FALSE)"
+          )
+        ),
+        required = list("pattern")
+      )
+    ),
+    list(
+      name = "write_file",
+      description = paste0(
+        "Create or OVERWRITE a file in the project. Use sparingly — ONLY ",
+        "for creating new files. For modifying existing files, prefer `edit_file` ",
+        "which makes targeted changes instead of rewriting the whole file. ",
+        "If the file exists, you MUST read it first with `read_file` before ",
+        "overwriting it."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          path = list(
+            type = "string",
+            description = "Path to file (relative to project root)"
+          ),
+          content = list(
+            type = "string",
+            description = "Full contents of the new file"
+          )
+        ),
+        required = list("path", "content")
+      )
+    ),
+    list(
+      name = "edit_file",
+      description = paste0(
+        "Make a targeted edit to an existing file. Finds `old_string` in the ",
+        "file (must match exactly, including whitespace) and replaces it with ",
+        "`new_string`. This is the PREFERRED way to modify existing files — ",
+        "it preserves the rest of the file untouched. If `old_string` is not ",
+        "unique in the file, the edit fails; include more surrounding context ",
+        "in `old_string` to make it unique."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          path = list(
+            type = "string",
+            description = "Path to file (relative to project root)"
+          ),
+          old_string = list(
+            type = "string",
+            description = "Exact text to find (include surrounding context to make it unique)"
+          ),
+          new_string = list(
+            type = "string",
+            description = "Replacement text"
+          ),
+          replace_all = list(
+            type = "boolean",
+            description = "Replace every occurrence (default: FALSE)"
+          )
+        ),
+        required = list("path", "old_string", "new_string")
+      )
     )
   )
 }
@@ -127,6 +262,11 @@ execute_tool <- function(name, input) {
       "run_r_preview" = tool_run_r_preview(input$code, input$timeout_sec %||% 30),
       "check_package" = tool_check_package(input$package),
       "read_editor" = tool_read_editor(input$line_start, input$line_end),
+      "list_files" = tool_list_files(input$pattern %||% "*", input$recursive %||% TRUE),
+      "read_file" = tool_read_file(input$path, input$line_start, input$line_end),
+      "grep_files" = tool_grep_files(input$pattern, input$file_glob, input$ignore_case %||% FALSE),
+      "write_file" = tool_write_file(input$path, input$content),
+      "edit_file" = tool_edit_file(input$path, input$old_string, input$new_string, input$replace_all %||% FALSE),
       paste0("ERROR: unknown tool `", name, "`")
     )
   }, error = function(e) {
@@ -286,5 +426,280 @@ tool_read_editor <- function(line_start, line_end = NULL) {
     "Lines ", line_start, "-", line_end, " of ", n, " from ",
     ctx$path %||% "<unsaved>", ":\n\n",
     paste(selected, collapse = "\n")
+  )
+}
+
+# ── File-system tools ──────────────────────────────────────────────────────
+
+#' List project files matching a glob pattern
+#' @keywords internal
+tool_list_files <- function(pattern = "*", recursive = TRUE) {
+  root <- find_project_root()
+
+  # Convert glob → regex
+  # Handle ** (recursive) as special case
+  has_globstar <- grepl("**", pattern, fixed = TRUE)
+  if (has_globstar) recursive <- TRUE
+
+  simple_pattern <- gsub("\\*\\*/", "", pattern, fixed = FALSE)
+  regex <- utils::glob2rx(simple_pattern)
+
+  all_files <- list.files(
+    root,
+    pattern = regex,
+    recursive = recursive,
+    full.names = FALSE,
+    include.dirs = FALSE,
+    all.files = FALSE
+  )
+
+  # Exclude common noise
+  all_files <- all_files[!grepl(
+    "(^|/)(\\.Rproj\\.user|\\.git|\\.DS_Store|node_modules|renv|__pycache__|\\.venv)(/|$)",
+    all_files
+  )]
+
+  if (length(all_files) == 0) {
+    return(paste0("(no files matching '", pattern, "' in ", root, ")"))
+  }
+
+  # Truncate if huge
+  if (length(all_files) > 200) {
+    head_files <- utils::head(all_files, 200)
+    paste0(
+      "Project root: ", root, "\n",
+      "Matched ", length(all_files), " files (showing first 200):\n",
+      paste(head_files, collapse = "\n")
+    )
+  } else {
+    paste0(
+      "Project root: ", root, "\n",
+      "Matched ", length(all_files), " files:\n",
+      paste(all_files, collapse = "\n")
+    )
+  }
+}
+
+#' Read a project file
+#' @keywords internal
+tool_read_file <- function(path, line_start = NULL, line_end = NULL) {
+  resolved <- resolve_project_path(path)
+  if (is.null(resolved)) {
+    return(paste0("ERROR: path `", path, "` is outside the project root or invalid."))
+  }
+  if (!file.exists(resolved)) {
+    return(paste0("ERROR: file does not exist: ", relative_to_root(resolved)))
+  }
+  if (dir.exists(resolved)) {
+    return(paste0("ERROR: `", relative_to_root(resolved), "` is a directory, not a file. Use list_files."))
+  }
+  if (!is_text_file(resolved)) {
+    return(paste0("ERROR: `", relative_to_root(resolved), "` doesn't look like a text file (extension not supported)."))
+  }
+
+  size <- file.info(resolved)$size
+  if (is.na(size) || size > 500000) {
+    return(paste0("ERROR: file is too large (", size %||% "unknown", " bytes). Read a specific range with line_start/line_end."))
+  }
+
+  lines <- tryCatch(
+    readLines(resolved, warn = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(lines)) {
+    return(paste0("ERROR: could not read ", relative_to_root(resolved)))
+  }
+
+  n <- length(lines)
+  s <- max(1L, as.integer(line_start %||% 1L))
+  e <- min(n, as.integer(line_end %||% n))
+
+  if (s > n) {
+    return(paste0("ERROR: line_start (", s, ") exceeds file length (", n, ")."))
+  }
+
+  selected <- lines[s:e]
+  # Prefix with line numbers (Claude Code style)
+  numbered <- sprintf("%5d\u2192%s", seq(s, e), selected)
+
+  paste0(
+    relative_to_root(resolved), " (lines ", s, "-", e, " of ", n, ")\n",
+    paste(numbered, collapse = "\n")
+  )
+}
+
+#' Search file contents for a regex pattern
+#' @keywords internal
+tool_grep_files <- function(pattern, file_glob = NULL, ignore_case = FALSE) {
+  root <- find_project_root()
+
+  # Build file list
+  regex_glob <- if (!is.null(file_glob) && nzchar(file_glob)) {
+    utils::glob2rx(file_glob)
+  } else {
+    NULL
+  }
+
+  all_files <- list.files(
+    root,
+    pattern = regex_glob,
+    recursive = TRUE,
+    full.names = TRUE,
+    include.dirs = FALSE,
+    all.files = FALSE
+  )
+
+  # Exclude noise + non-text
+  all_files <- all_files[!grepl(
+    "(^|/)(\\.Rproj\\.user|\\.git|\\.DS_Store|node_modules|renv|__pycache__|\\.venv)(/|$)",
+    all_files
+  )]
+  all_files <- all_files[vapply(all_files, is_text_file, logical(1))]
+
+  if (length(all_files) == 0) {
+    return("(no files to search)")
+  }
+
+  # Search each file
+  matches <- list()
+  for (f in all_files) {
+    lines <- tryCatch(readLines(f, warn = FALSE), error = function(e) NULL)
+    if (is.null(lines) || length(lines) == 0) next
+
+    hit_lines <- tryCatch(
+      grep(pattern, lines, ignore.case = ignore_case, value = FALSE, perl = TRUE),
+      error = function(e) integer()
+    )
+    if (length(hit_lines) > 0) {
+      rel <- relative_to_root(f, root)
+      matches[[rel]] <- data.frame(
+        line = hit_lines,
+        text = lines[hit_lines],
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  if (length(matches) == 0) {
+    return(paste0("No matches for pattern `", pattern, "`."))
+  }
+
+  # Format output
+  out_lines <- character()
+  total_hits <- 0
+  for (rel_path in names(matches)) {
+    hits <- matches[[rel_path]]
+    for (i in seq_len(nrow(hits))) {
+      if (total_hits >= 100) break
+      out_lines <- c(out_lines, sprintf("%s:%d: %s", rel_path, hits$line[i], hits$text[i]))
+      total_hits <- total_hits + 1
+    }
+    if (total_hits >= 100) break
+  }
+
+  header <- sprintf("Found %d matches in %d files%s",
+                    sum(vapply(matches, nrow, integer(1))),
+                    length(matches),
+                    if (total_hits >= 100) " (showing first 100)" else "")
+  paste(c(header, out_lines), collapse = "\n")
+}
+
+#' Write a new file (or overwrite an existing one)
+#' @keywords internal
+tool_write_file <- function(path, content) {
+  if (is.null(path) || !nzchar(path)) {
+    return("ERROR: path is required.")
+  }
+  if (is.null(content)) content <- ""
+
+  resolved <- resolve_project_path(path)
+  if (is.null(resolved)) {
+    return(paste0("ERROR: path `", path, "` is outside the project root or invalid."))
+  }
+
+  # Create parent directory if needed
+  parent <- dirname(resolved)
+  if (!dir.exists(parent)) {
+    dir.create(parent, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  existed <- file.exists(resolved)
+  tryCatch({
+    writeLines(content, resolved, useBytes = TRUE)
+  }, error = function(e) {
+    stop("writeLines failed: ", conditionMessage(e))
+  })
+
+  action <- if (existed) "overwrote" else "created"
+  n_lines <- length(strsplit(content, "\n", fixed = TRUE)[[1]])
+  paste0("Successfully ", action, " ", relative_to_root(resolved),
+         " (", n_lines, " lines, ", nchar(content), " chars).")
+}
+
+#' Make a targeted edit to an existing file
+#'
+#' Claude Code-style: exact-match find-and-replace. old_string must appear
+#' uniquely unless replace_all=TRUE.
+#'
+#' @keywords internal
+tool_edit_file <- function(path, old_string, new_string, replace_all = FALSE) {
+  if (is.null(path) || !nzchar(path)) return("ERROR: path is required.")
+  if (is.null(old_string)) return("ERROR: old_string is required.")
+  if (is.null(new_string)) new_string <- ""
+
+  resolved <- resolve_project_path(path)
+  if (is.null(resolved)) {
+    return(paste0("ERROR: path `", path, "` is outside the project root or invalid."))
+  }
+  if (!file.exists(resolved)) {
+    return(paste0("ERROR: file does not exist: ", relative_to_root(resolved)))
+  }
+  if (!is_text_file(resolved)) {
+    return(paste0("ERROR: `", relative_to_root(resolved), "` is not a text file."))
+  }
+
+  current <- tryCatch(
+    paste(readLines(resolved, warn = FALSE), collapse = "\n"),
+    error = function(e) NULL
+  )
+  if (is.null(current)) {
+    return(paste0("ERROR: could not read ", relative_to_root(resolved)))
+  }
+
+  # Count matches
+  n_matches <- length(gregexpr(old_string, current, fixed = TRUE)[[1]])
+  if (n_matches == 1 && attr(gregexpr(old_string, current, fixed = TRUE)[[1]], "match.length")[1] == -1) {
+    n_matches <- 0
+  }
+
+  if (n_matches == 0) {
+    return(paste0(
+      "ERROR: old_string not found in ", relative_to_root(resolved),
+      ". Make sure the text matches exactly (including whitespace, newlines, and indentation)."
+    ))
+  }
+  if (n_matches > 1 && !replace_all) {
+    return(paste0(
+      "ERROR: old_string matches ", n_matches, " times in ", relative_to_root(resolved),
+      ". Either include more surrounding context to make the match unique, or pass replace_all=TRUE."
+    ))
+  }
+
+  new_content <- if (replace_all) {
+    gsub(old_string, new_string, current, fixed = TRUE)
+  } else {
+    sub(old_string, new_string, current, fixed = TRUE)
+  }
+
+  tryCatch({
+    writeLines(new_content, resolved, useBytes = TRUE)
+  }, error = function(e) {
+    stop("writeLines failed: ", conditionMessage(e))
+  })
+
+  n_replaced <- if (replace_all) n_matches else 1L
+  paste0(
+    "Successfully edited ", relative_to_root(resolved),
+    " (", n_replaced, " replacement", if (n_replaced != 1) "s" else "", ")."
   )
 }
