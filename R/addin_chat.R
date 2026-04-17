@@ -44,26 +44,30 @@ open_chat <- function() {
     ),
 
     miniUI::gadgetTitleBar(
-      "sparx",
+      shiny::HTML('<span class="sparx-logo"><span class="sparx-logo-mark">&#x2726;</span>sparx</span>'),
       right = miniUI::miniTitleBarButton("close", "Close", primary = FALSE),
       left = miniUI::miniTitleBarButton("clear", "Clear", primary = FALSE)
     ),
 
-    # ── Compact controls bar ───────────────────────────
+    # ── Single controls row ────────────────────────────
     shiny::div(
       class = "sparx-controls",
-      model_pill_ui("model_pill"),
       provider_select_ui("provider_select"),
-      shiny::tags$span(class = "sparx-separator", "|"),
-      shiny::actionButton("toggle_plan", toggle_label("Plan", FALSE),
-                          class = "sparx-toggle"),
-      shiny::actionButton("toggle_live", toggle_label("Live", FALSE),
-                          class = "sparx-toggle"),
-      shiny::actionButton("toggle_install", toggle_label("Install", FALSE),
-                          class = "sparx-toggle"),
-      shiny::actionButton("toggle_git", toggle_label("Git", FALSE),
-                          class = "sparx-toggle"),
-      shiny::span(class = "sparx-usage", shiny::textOutput("token_display", inline = TRUE))
+      shiny::tags$span(class = "sparx-separator", ""),
+      shiny::actionButton("toggle_plan", "Plan",
+                          class = toggle_class("plan",
+                            isTRUE(getOption("sparx.plan_mode", FALSE)))),
+      shiny::actionButton("toggle_live", "Live",
+                          class = toggle_class("live",
+                            isTRUE(getOption("sparx.live_execution", FALSE)))),
+      shiny::actionButton("toggle_install", "Install",
+                          class = toggle_class("install",
+                            isTRUE(getOption("sparx.auto_install", FALSE)))),
+      shiny::actionButton("toggle_git", "Git",
+                          class = toggle_class("git",
+                            isTRUE(getOption("sparx.allow_git", FALSE)))),
+      shiny::span(class = "sparx-usage",
+                  shiny::textOutput("token_display", inline = TRUE))
     ),
 
     miniUI::miniContentPanel(
@@ -76,9 +80,9 @@ open_chat <- function() {
         ),
         shiny::div(
           class = "sparx-input-area",
+          shiny::div(id = "sparx-slash-menu", class = "sparx-slash-menu"),
           shiny::div(
             class = "sparx-input-wrapper",
-            shiny::div(id = "sparx-slash-menu", class = "sparx-slash-menu"),
             shiny::textAreaInput(
               "user_input",
               label = NULL,
@@ -87,15 +91,15 @@ open_chat <- function() {
               width = "100%"
             ),
             shiny::div(
-              class = "sparx-send-group",
-              shiny::actionButton("send", "Send", class = "btn-primary btn-sm"),
-              shiny::actionButton("stop", "Stop", class = "btn-danger btn-sm sparx-stop")
+              class = "sparx-input-actions-row",
+              shiny::span(class = "sparx-hint",
+                          "Cmd+Enter \u00b7 / for commands \u00b7 \u2191 for last"),
+              shiny::div(
+                class = "sparx-send-group",
+                shiny::actionButton("send", "Send", class = "btn-primary btn-sm"),
+                shiny::actionButton("stop", "Stop", class = "btn-danger btn-sm sparx-stop")
+              )
             )
-          ),
-          shiny::div(
-            class = "sparx-input-actions",
-            shiny::span(class = "sparx-hint",
-                        "Cmd/Ctrl+Enter to send \u00b7 / for commands \u00b7 \u2191 to recall")
           )
         )
       )
@@ -144,18 +148,16 @@ open_chat <- function() {
     shiny::observeEvent(input$toggle_plan, {
       new_val <- !plan_on()
       plan_on(new_val)
-      shiny::updateActionButton(session, "toggle_plan",
-                                label = toggle_label("Plan", new_val))
+      session$sendCustomMessage("sparx_set_toggle",
+        list(id = "toggle_plan", on = new_val, name = "plan"))
       if (new_val) {
         shiny::showNotification(
-          "Plan mode ON \u2014 the agent will propose a plan without writing. Turn off when ready to execute.",
+          "Plan mode ON \u2014 agent proposes a plan without writing. Toggle off to execute.",
           type = "message", duration = 5, session = session
         )
       } else {
-        shiny::showNotification(
-          "Plan mode OFF \u2014 full tools available again.",
-          type = "message", duration = 3, session = session
-        )
+        shiny::showNotification("Plan mode OFF \u2014 full tools available.",
+                                type = "message", duration = 3, session = session)
       }
     })
 
@@ -166,20 +168,20 @@ open_chat <- function() {
           "sparx can now run code in your session. Destructive patterns stay blocked.")
       }
       live_on(new_val)
-      shiny::updateActionButton(session, "toggle_live",
-                                label = toggle_label("Live", new_val))
+      session$sendCustomMessage("sparx_set_toggle",
+        list(id = "toggle_live", on = new_val, name = "live"))
     })
     shiny::observeEvent(input$toggle_install, {
       new_val <- !install_on()
       install_on(new_val)
-      shiny::updateActionButton(session, "toggle_install",
-                                label = toggle_label("Install", new_val))
+      session$sendCustomMessage("sparx_set_toggle",
+        list(id = "toggle_install", on = new_val, name = "install"))
     })
     shiny::observeEvent(input$toggle_git, {
       new_val <- !git_on()
       git_on(new_val)
-      shiny::updateActionButton(session, "toggle_git",
-                                label = toggle_label("Git", new_val))
+      session$sendCustomMessage("sparx_set_toggle",
+        list(id = "toggle_git", on = new_val, name = "git"))
     })
 
     # ── Stop button ────────────────────────────────────
@@ -544,6 +546,13 @@ rotating_placeholder <- function() {
 #' @keywords internal
 toggle_label <- function(name, on) {
   paste0(name, ": ", if (isTRUE(on)) "ON" else "off")
+}
+
+#' Compose the CSS class for a toggle button given its state
+#' @keywords internal
+toggle_class <- function(kind, on) {
+  base <- paste0("sparx-toggle sparx-toggle-", kind)
+  if (isTRUE(on)) paste(base, "sparx-toggle-on") else base
 }
 
 #' @keywords internal

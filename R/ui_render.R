@@ -1,20 +1,13 @@
-#' UI render helpers — bubbles, tool cards, diff blocks, images, todos
+#' UI render helpers — premium redesign (v1.2.0)
 #'
-#' These functions produce the Shiny tags used by the chat gadget.
-#' The look-and-feel is driven entirely by ui.R's CSS tokens.
+#' No assistant bubble (plain prose).
+#' User bubble: right-aligned pill.
+#' Tool row: minimal horizontal with chevron + colored icon + status dot.
+#' Code block: 8px rounded, hover-revealed copy, warm-black background.
 
 # ── Shared JavaScript ──────────────────────────────────────────────────────
 
 #' Client-side JS glue (sent once with the UI)
-#'
-#' - Cmd+Enter to send
-#' - sparxSendCode / sparxCopyCode globals for per-code-block buttons
-#' - Toggle body.sparx-streaming via Shiny custom message
-#' - Tool-card expand/collapse
-#' - Slash-command menu (v0.9)
-#' - Conditional auto-scroll (only when user is near bottom)
-#' - Auto-grow textarea
-#'
 #' @keywords internal
 cmd_enter_js <- function() {
   "
@@ -42,15 +35,15 @@ cmd_enter_js <- function() {
     var code = el.textContent;
     Shiny.setInputValue(inputName, code, { priority: 'event' });
   };
-  window.sparxCopyCode = function(codeId) {
+  window.sparxCopyCode = function(codeId, btn) {
     var el = document.getElementById(codeId);
     if (!el) return;
     navigator.clipboard.writeText(el.textContent);
-    // Flash the button
-    var btn = event.currentTarget;
-    var orig = btn.textContent;
-    btn.textContent = 'Copied';
-    setTimeout(function() { btn.textContent = orig; }, 1200);
+    if (btn) {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(function() { btn.textContent = orig; }, 1200);
+    }
   };
 
   // Streaming state toggle (body class drives Send/Stop visibility)
@@ -61,15 +54,22 @@ cmd_enter_js <- function() {
     Shiny.addCustomMessageHandler('sparx_highlight', function(_) {
       if (typeof Prism !== 'undefined') Prism.highlightAll();
     });
+    Shiny.addCustomMessageHandler('sparx_set_toggle', function(data) {
+      var btn = document.getElementById(data.id);
+      if (!btn) return;
+      var classes = ['sparx-toggle-plan','sparx-toggle-live','sparx-toggle-install','sparx-toggle-git'];
+      btn.classList.toggle('sparx-toggle-on', !!data.on);
+      classes.forEach(function(c) { btn.classList.remove(c); });
+      btn.classList.add('sparx-toggle-' + data.name);
+    });
   }
 
-  // Tool card expand / collapse
+  // Tool card expand/collapse
   document.addEventListener('click', function(e) {
     var summary = e.target.closest('.sparx-tool-summary');
-    if (summary) {
-      summary.parentElement.classList.toggle('expanded');
-    }
-    // Starter prompt clicked: fill input and focus
+    if (summary) summary.parentElement.classList.toggle('expanded');
+
+    // Starter prompt: fill input + focus
     var starter = e.target.closest('.sparx-starter');
     if (starter) {
       var text = starter.getAttribute('data-prompt');
@@ -82,32 +82,43 @@ cmd_enter_js <- function() {
     }
   });
 
-  // Conditional auto-scroll — only when user is within 80px of the bottom
+  // Conditional auto-scroll — only when user is near the bottom
   setInterval(function() {
     var t = document.getElementById('sparx-thread');
     if (!t) return;
     var gap = t.scrollHeight - t.scrollTop - t.clientHeight;
-    if (gap < 80) t.scrollTop = t.scrollHeight;
+    if (gap < 100) t.scrollTop = t.scrollHeight;
+  }, 400);
+
+  // Scroll shadow on header
+  var threadEl = null;
+  var scrollObserverInterval = setInterval(function() {
+    threadEl = document.getElementById('sparx-thread');
+    if (!threadEl) return;
+    var controls = document.querySelector('.sparx-controls');
+    if (!controls) return;
+    threadEl.addEventListener('scroll', function() {
+      controls.classList.toggle('scrolled', threadEl.scrollTop > 10);
+    });
+    clearInterval(scrollObserverInterval);
   }, 400);
 
   // Auto-grow textarea + slash-command menu
   var SLASH_COMMANDS = [
     { cmd: '/clear',    desc: 'Clear the conversation' },
-    { cmd: '/plan',     desc: 'Toggle Plan mode (read-only exploration)' },
-    { cmd: '/compact',  desc: 'Summarize earlier turns to save context tokens' },
-    { cmd: '/model',    desc: 'Switch model (e.g. /model haiku)' },
-    { cmd: '/provider', desc: 'Switch provider (anthropic | openai)' },
-    { cmd: '/retry',    desc: 'Retry the last message' },
-    { cmd: '/help',     desc: 'Show sparx help' }
+    { cmd: '/plan',     desc: 'Toggle plan mode (read-only exploration)' },
+    { cmd: '/compact',  desc: 'Summarize earlier turns to save context' },
+    { cmd: '/model',    desc: 'Switch model (haiku / sonnet / opus / 4o / mini)' },
+    { cmd: '/provider', desc: 'Switch provider (anthropic / openai)' },
+    { cmd: '/retry',    desc: 'Recall the last user message' },
+    { cmd: '/help',     desc: 'Show slash-command help' }
   ];
 
   document.addEventListener('input', function(e) {
     var ta = e.target;
     if (!ta.matches('.sparx-input-area textarea')) return;
-    // Auto-grow
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
-    // Slash-command detection
     var menu = document.getElementById('sparx-slash-menu');
     if (!menu) return;
     if (ta.value.startsWith('/')) {
@@ -144,17 +155,15 @@ cmd_enter_js <- function() {
     document.getElementById('sparx-slash-menu').classList.remove('active');
   });
 
-  // Up-arrow in empty input recalls last user message (Shell-style)
+  // Up-arrow in empty input recalls last user message
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'ArrowUp') return;
     var ta = e.target;
     if (!ta.matches('.sparx-input-area textarea')) return;
     if (ta.value.length === 0) {
-      // Find the last user bubble
       var bubbles = document.querySelectorAll('.sparx-user');
       if (bubbles.length > 0) {
-        var last = bubbles[bubbles.length - 1];
-        ta.value = last.textContent.trim();
+        ta.value = bubbles[bubbles.length - 1].textContent.trim();
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         e.preventDefault();
       }
@@ -165,60 +174,70 @@ cmd_enter_js <- function() {
 
 # ── Welcome / empty state ──────────────────────────────────────────────────
 
-#' Session-aware welcome card with clickable starter prompts + key-setup fallback
-#'
-#' Reads the user's .GlobalEnv and tailors starter prompts to loaded data.
-#' If no provider is configured, pivots to a setup guide.
+#' Session-aware welcome card
 #' @keywords internal
 welcome_message_html <- function() {
   configured <- tryCatch(configured_providers(), error = function(e) character())
 
-  # No API key configured at all — show setup guide, not starters
+  hero <- paste0(
+    '<div class="sparx-welcome-hero">',
+    '<span class="sparx-welcome-logo">\u2726</span>',
+    '<div class="sparx-welcome-name">sparx</div>',
+    '<div class="sparx-welcome-tagline">AI research partner for R</div>',
+    '</div>'
+  )
+
+  # No key configured → setup cards
   if (length(configured) == 0) {
     return(shiny::HTML(paste0(
-      '<h3>Welcome to sparx</h3>',
-      '<div class="sparx-welcome-intro">',
-      "Let\u2019s get you set up. You need an API key for <strong>one</strong> ",
-      "provider to start:",
+      hero,
+      '<div class="sparx-welcome-intro">Let\u2019s get you set up. Choose a provider:</div>',
+
+      '<div class="sparx-setup-card">',
+      '<h4>Anthropic (Claude)</h4>',
+      '<p>Get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>, then paste this in the R Console:</p>',
+      '<pre><code>sparx::set_api_key()</code></pre>',
       '</div>',
-      '<div style="margin: 10px 0; font-size: 12px; line-height: 1.7;">',
-      '<strong>Anthropic (Claude)</strong> \u2014 ',
-      'get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>, then in the R Console:',
-      '<pre style="margin: 4px 0; padding: 6px 10px;"><code>sparx::set_api_key()</code></pre>',
-      '<strong>OpenAI (GPT)</strong> \u2014 ',
-      'get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>, then:',
-      '<pre style="margin: 4px 0; padding: 6px 10px;"><code>sparx::set_api_key(provider = "openai")</code></pre>',
+
+      '<div class="sparx-setup-card">',
+      '<h4>OpenAI (GPT)</h4>',
+      '<p>Get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>:</p>',
+      '<pre><code>sparx::set_api_key(provider = "openai")</code></pre>',
       '</div>',
-      privacy_note_html(),
-      '<div style="margin-top: 12px; font-size: 11px; color: var(--sparx-color-text-muted);">',
-      "After saving your key, close this panel (top-right Close button) and reopen via <strong>Addins \u2192 Open sparx Chat</strong>.",
+
+      '<div class="sparx-privacy-note">',
+      '<strong>Privacy:</strong> your prompts, code, and dataframe schemas ',
+      '(column names + types, not row data) are sent to the chosen provider. ',
+      'Do not use sparx with PHI/PII unless your institution has a BAA with them.',
+      '</div>',
+
+      '<div style="margin-top: 14px; font-size: 11px; color: var(--sparx-color-text-subtle); text-align: center;">',
+      'After saving your key, close this panel and reopen via ',
+      '<strong>Addins \u2192 Open sparx Chat</strong>.',
       '</div>'
     )))
   }
 
-  # Detect dataframes for session-aware starters
+  # Session-aware intro
   dfs <- list_dataframes()
   df_names <- names(dfs)
 
   intro <- if (length(df_names) == 0) {
-    paste0(
-      "I don\u2019t see any dataframes loaded yet. Load some data and ask me ",
-      "a question \u2014 I'll handle the rest."
-    )
+    "No dataframes loaded. Load some data (or try <code>sparx::demo_workflow()</code>) and I can help you analyze it."
   } else if (length(df_names) == 1) {
     df <- dfs[[df_names[1]]]
-    sprintf("I see you have <code>%s</code> loaded (%d rows \u00d7 %d cols). Ready when you are.",
+    sprintf("I see <code>%s</code> loaded (%d\u00d7%d). Ready when you are.",
             escape_html(df_names[1]), df$rows, df$cols)
   } else {
     summaries <- sapply(df_names[1:min(3, length(df_names))], function(n) {
       sprintf("<code>%s</code> (%d\u00d7%d)",
               escape_html(n), dfs[[n]]$rows, dfs[[n]]$cols)
     })
-    sprintf("You have %d dataframes loaded: %s.",
+    sprintf("%d dataframes loaded: %s.",
             length(df_names), paste(summaries, collapse = ", "))
   }
 
-  # Build starter prompts
+  # Starter prompts
   starters <- character()
   if (length(df_names) > 0) {
     main_df <- df_names[1]
@@ -232,7 +251,7 @@ welcome_message_html <- function() {
     factor_cols <- vapply(cols, function(c) c$name, character(1))[grepl("factor|character", types)]
     if (length(numeric_cols) > 0 && length(factor_cols) > 0) {
       starters <- c(starters,
-        sprintf("Compare %s across %s groups in %s, check assumptions, pick the right test.",
+        sprintf("Compare %s across %s groups in %s \u2014 check assumptions, pick the right test.",
                 numeric_cols[1], factor_cols[1], main_df))
     }
   } else {
@@ -252,61 +271,45 @@ welcome_message_html <- function() {
   )
 
   shiny::HTML(paste0(
-    '<h3>sparx</h3>',
+    hero,
     '<div class="sparx-welcome-intro">', intro, '</div>',
     starter_html,
-    privacy_note_html()
+    '<div class="sparx-privacy-note">',
+    '<strong>Privacy:</strong> prompts, code, and dataframe schemas go to the model provider. ',
+    'Avoid PHI/PII unless your institution has a BAA.',
+    '</div>'
   ))
 }
 
-#' Short privacy note shown at bottom of welcome card
-#' @keywords internal
-privacy_note_html <- function() {
-  paste0(
-    '<div style="margin-top: 16px; padding: 8px 10px; background: var(--sparx-color-bg-muted); ',
-    'border-left: 2px solid var(--sparx-color-text-subtle); font-size: 10px; color: var(--sparx-color-text-muted); line-height: 1.5;">',
-    '<strong>Privacy:</strong> your prompts, code, and dataframe <em>schemas</em> ',
-    '(column names + types, not row data) are sent to the model provider. ',
-    '<strong>Do not use sparx with PHI/PII unless your institution has a BAA</strong> ',
-    'with Anthropic or OpenAI.',
-    '</div>'
-  )
-}
+# ── System notice ──────────────────────────────────────────────────────────
 
-# ── System notice (subtle inline banner) ───────────────────────────────────
-
-#' Render a subtle system notice (used for compaction messages, etc.)
+#' Subtle inline banner (used for compaction, etc.)
 #' @keywords internal
 render_system_notice <- function(message) {
   shiny::HTML(paste0(
     '<div class="sparx-system-notice">',
-    '<span class="sparx-system-notice-icon">&#x2139;</span>',
-    escape_html(message),
+    '<span class="sparx-system-notice-icon">\u2726</span>',
+    '<span>', escape_html(message), '</span>',
     '</div>'
   ))
 }
 
 # ── Message bubbles ────────────────────────────────────────────────────────
 
-#' Render a user message bubble
+#' User message — right-aligned pill
 #' @keywords internal
 render_user_bubble <- function(text) {
-  shiny::div(
-    class = "sparx-bubble sparx-user",
-    shiny::HTML(escape_html(text))
-  )
+  shiny::HTML(paste0(
+    '<div class="sparx-user-wrap">',
+    '<div class="sparx-user">', escape_html(text), '</div>',
+    '</div>'
+  ))
 }
 
-#' Render an assistant message using CommonMark-based markdown
-#'
-#' Also extracts code blocks and wraps them in sparx-codeblock containers
-#' with language + actions (Insert / Run preview / Copy).
+#' Assistant message — no bubble, just clean prose with markdown
 #' @keywords internal
 render_assistant_bubble <- function(text, streaming = FALSE) {
   if (is.null(text) || length(text) == 0) text <- ""
-
-  # Parse the message into alternating prose / code sections (so we can
-  # wrap each code block in our own action-bearing container)
   parts <- parse_message_parts(text)
 
   rendered <- lapply(parts, function(p) {
@@ -318,26 +321,19 @@ render_assistant_bubble <- function(text, streaming = FALSE) {
   })
 
   if (streaming) {
-    rendered <- c(rendered, list(shiny::HTML('<span class="sparx-streaming-cursor"></span>')))
+    rendered <- c(rendered,
+                  list(shiny::HTML('<span class="sparx-streaming-cursor"></span>')))
   }
 
   shiny::div(
     class = "sparx-assistant sparx-markdown",
-    shiny::div(
-      class = "sparx-sender",
-      shiny::HTML('<span class="sparx-sender-dot"></span>sparx')
-    ),
     shiny::tagList(rendered)
   )
 }
 
-# ── Markdown rendering ─────────────────────────────────────────────────────
+# ── Markdown ───────────────────────────────────────────────────────────────
 
-#' Render markdown text to safe HTML
-#'
-#' Uses the commonmark package for CommonMark-compliant parsing, then
-#' strips any embedded script tags as a belt-and-braces safety measure.
-#'
+#' Render markdown to safe HTML
 #' @keywords internal
 render_markdown <- function(text) {
   if (is.null(text) || length(text) == 0 || !nzchar(text)) return("")
@@ -345,27 +341,18 @@ render_markdown <- function(text) {
     commonmark::markdown_html(text, smart = TRUE, extensions = c("table", "autolink")),
     error = function(e) paste0("<p>", escape_html(text), "</p>")
   )
-  # Strip <script> tags as a safety measure (CommonMark doesn't emit them,
-  # but raw HTML in the input could pass through)
   html <- gsub("<script[^>]*>.*?</script>", "", html, ignore.case = TRUE, perl = TRUE)
   html
 }
 
-#' Parse a message into alternating prose / code sections
-#'
-#' Returns a list where each element is either
-#'   { type = "prose", content = "..." } or
-#'   { type = "code", content = "...", lang = "r" }.
+#' Split a message into alternating prose / code sections
 #' @keywords internal
 parse_message_parts <- function(text) {
   pattern <- "```([a-zA-Z0-9_+-]*)[ \\t]*\\n([\\s\\S]*?)```"
   parts <- list()
   cursor <- 1
   matches <- gregexpr(pattern, text, perl = TRUE)[[1]]
-
-  if (matches[1] == -1) {
-    return(list(list(type = "prose", content = text)))
-  }
+  if (matches[1] == -1) return(list(list(type = "prose", content = text)))
 
   lengths <- attr(matches, "match.length")
   capture <- attr(matches, "capture.start")
@@ -405,11 +392,10 @@ parse_message_parts <- function(text) {
   parts
 }
 
-# ── Code blocks with actions ───────────────────────────────────────────────
+# ── Code blocks ────────────────────────────────────────────────────────────
 
 #' Render a code block with header (language + line count), actions,
-#' and Prism-compatible `language-r` class for syntax highlighting.
-#'
+#' Prism-compatible `language-r` class.
 #' @keywords internal
 code_block_with_actions <- function(code, lang = "r") {
   code_id <- paste0("sparx-code-", sample.int(1e9, 1))
@@ -421,9 +407,9 @@ code_block_with_actions <- function(code, lang = "r") {
       '<div class="sparx-codeblock-header">',
         '<span>',
           '<span class="sparx-codeblock-lang">', lang_norm, '</span>',
-          '<span class="sparx-codeblock-meta"> \u00b7 ', n_lines, ' line', if (n_lines != 1) 's' else '', '</span>',
+          '<span class="sparx-codeblock-meta">\u00b7 ', n_lines, ' line', if (n_lines != 1) 's' else '', '</span>',
         '</span>',
-        '<button class="sparx-codeblock-copy" onclick="sparxCopyCode(\'', code_id, '\')">Copy</button>',
+        '<button class="sparx-codeblock-copy" onclick="sparxCopyCode(\'', code_id, '\', this)">Copy</button>',
       '</div>',
       '<pre><code id="', code_id, '" class="language-', lang_norm, '">',
         escape_html(code),
@@ -436,57 +422,90 @@ code_block_with_actions <- function(code, lang = "r") {
   ))
 }
 
-# ── Tool cards (collapsible) ───────────────────────────────────────────────
+# ── Tool rows ──────────────────────────────────────────────────────────────
 
-#' Render an active (running) tool card
+#' Tool category for color mapping
+#' @keywords internal
+tool_category <- function(name) {
+  read_tools <- c("inspect_data", "check_package", "read_editor", "read_file",
+                  "list_files", "grep_files", "get_session_state", "inspect_plot",
+                  "read_console")
+  write_tools <- c("write_file", "edit_file", "install_packages", "todo_write")
+  run_tools <- c("run_r_preview", "run_in_session")
+  git_tools <- c("git_status", "git_diff", "git_log", "git_commit")
+  web_tools <- c("fetch_url")
+
+  if (name %in% read_tools)  return("read")
+  if (name %in% write_tools) return("write")
+  if (name %in% run_tools)   return("run")
+  if (name %in% git_tools)   return("git")
+  if (name %in% web_tools)   return("web")
+  "read"
+}
+
+#' Icon glyph for a tool category (monochrome, colored via CSS)
+#' @keywords internal
+tool_icon_glyph <- function(category) {
+  switch(category,
+    read  = "\u25a3",   # centered square (inspect)
+    write = "\u270E",   # pencil
+    run   = "\u25B6",   # play triangle
+    git   = "\u2387",   # four-dot diamond
+    web   = "\u2922",   # arrow
+    "\u25CF"
+  )
+}
+
+#' Render a tool badge (while running or on replay)
 #' @keywords internal
 render_tool_badge <- function(tool_name, input_preview = NULL, running = TRUE) {
-  cls <- if (running) "sparx-tool running" else "sparx-tool"
+  cat_name <- tool_category(tool_name)
+  cls <- paste0("sparx-tool tool-cat-", cat_name, if (running) " running" else "")
   shiny::HTML(paste0(
     '<div class="', cls, '">',
       '<div class="sparx-tool-summary">',
-        '<span class="sparx-tool-chevron">&#9656;</span>',
-        '<span class="sparx-tool-icon">&gt;_</span>',
+        '<span class="sparx-tool-chevron">\u203a</span>',
+        '<span class="sparx-tool-icon">', tool_icon_glyph(cat_name), '</span>',
         '<span class="sparx-tool-name">', escape_html(pretty_tool_name(tool_name)), '</span>',
         '<span class="sparx-tool-input">',
           escape_html(input_preview %||% ""),
         '</span>',
-        '<span class="sparx-tool-status">running</span>',
+        '<span class="sparx-tool-dot"></span>',
+        '<span class="sparx-tool-status">', if (running) "running" else "", '</span>',
       '</div>',
+      '<div class="sparx-tool-details"><div class="sparx-tool-details-inner">',
+        '<div class="sparx-tool-details-body"></div>',
+      '</div></div>',
     '</div>'
   ))
 }
 
-#' Render a completed tool call with collapsible details
-#'
-#' Summary row: chevron, icon, tool name, concise input preview, status.
-#' Click to expand the full result.
+#' Render a completed tool call, collapsible
 #' @keywords internal
 render_tool_result <- function(tool_name, result, input = NULL) {
   result_text <- if (is.null(result)) "" else as.character(result)
 
-  # Special rendering: edit_file diff
   diff_match <- regmatches(
     result_text,
     regexec("<<<DIFF>>>\\s*\\n([\\s\\S]*?)\\n<<<END DIFF>>>", result_text, perl = TRUE)
   )[[1]]
 
-  # Special rendering: captured plot image
   img_match <- regmatches(
     result_text,
     regexec("<<<SPARX_IMAGE ([a-z]+)>>>\\s*\\n([A-Za-z0-9+/=\\s]+?)\\s*\\n<<<END SPARX_IMAGE>>>",
             result_text, perl = TRUE)
   )[[1]]
 
-  # Build summary parts
-  is_error <- grepl("^ERROR", result_text) || grepl("^ABORTED", result_text)
+  is_error <- grepl("^ERROR", result_text) || grepl("^ABORTED", result_text) ||
+              grepl("^REFUSED", result_text)
   status_label <- extract_status_label(tool_name, result_text, is_error)
   input_preview <- extract_input_preview(tool_name, input)
-  icon <- if (is_error) "!" else "\u2713"
-  status_class <- if (is_error) "err" else "ok"
+  cat_name <- tool_category(tool_name)
 
-  # Build details payload
-  details <- if (length(diff_match) >= 2) {
+  state_cls <- if (is_error) " error" else ""
+  cls <- paste0("sparx-tool tool-cat-", cat_name, state_cls)
+
+  details_body <- if (length(diff_match) >= 2) {
     diff_content <- diff_match[2]
     prose <- trimws(sub("<<<DIFF>>>[\\s\\S]*<<<END DIFF>>>", "", result_text, perl = TRUE))
     shiny::tagList(
@@ -504,7 +523,7 @@ render_tool_result <- function(tool_name, result, input = NULL) {
   } else {
     display_text <- if (nchar(result_text) > 3000) {
       paste0(substr(result_text, 1, 3000),
-             "\n\n... [truncated in UI \u2014 Claude saw full output]")
+             "\n\n... [truncated \u2014 Claude saw full output]")
     } else {
       result_text
     }
@@ -512,70 +531,77 @@ render_tool_result <- function(tool_name, result, input = NULL) {
   }
 
   shiny::HTML(paste0(
-    '<div class="sparx-tool">',
+    '<div class="', cls, '">',
       '<div class="sparx-tool-summary">',
-        '<span class="sparx-tool-chevron">&#9656;</span>',
-        '<span class="sparx-tool-icon">', icon, '</span>',
+        '<span class="sparx-tool-chevron">\u203a</span>',
+        '<span class="sparx-tool-icon">', tool_icon_glyph(cat_name), '</span>',
         '<span class="sparx-tool-name">', escape_html(pretty_tool_name(tool_name)), '</span>',
         '<span class="sparx-tool-input">', escape_html(input_preview), '</span>',
-        '<span class="sparx-tool-status ', status_class, '">', escape_html(status_label), '</span>',
+        '<span class="sparx-tool-dot"></span>',
+        '<span class="sparx-tool-status">', escape_html(status_label), '</span>',
       '</div>',
-      '<div class="sparx-tool-details">',
-        as.character(details),
-      '</div>',
+      '<div class="sparx-tool-details"><div class="sparx-tool-details-inner">',
+        '<div class="sparx-tool-details-body">',
+          as.character(details_body),
+        '</div>',
+      '</div></div>',
     '</div>'
   ))
 }
 
-#' Extract a short input preview for the tool summary row
+#' Short input preview for tool summary row
 #' @keywords internal
 extract_input_preview <- function(tool_name, input) {
   if (is.null(input) || length(input) == 0) return("")
   preview <- switch(
     tool_name,
-    "inspect_data"   = input$name %||% "",
-    "run_r_preview"  = truncate_str(input$code %||% "", 60),
-    "run_in_session" = truncate_str(input$code %||% "", 60),
-    "check_package"  = input$package %||% "",
-    "read_file"      = input$path %||% "",
-    "read_editor"    = paste0("lines ", input$line_start %||% "?", "-", input$line_end %||% "end"),
-    "list_files"     = input$pattern %||% "*",
-    "grep_files"     = truncate_str(input$pattern %||% "", 40),
-    "write_file"     = input$path %||% "",
-    "edit_file"      = input$path %||% "",
-    "fetch_url"      = truncate_str(input$url %||% "", 50),
+    "inspect_data"     = input$name %||% "",
+    "run_r_preview"    = truncate_str(input$code %||% "", 60),
+    "run_in_session"   = truncate_str(input$code %||% "", 60),
+    "check_package"    = input$package %||% "",
+    "read_file"        = input$path %||% "",
+    "read_editor"      = paste0("lines ", input$line_start %||% "?", "-",
+                                input$line_end %||% "end"),
+    "list_files"       = input$pattern %||% "*",
+    "grep_files"       = truncate_str(input$pattern %||% "", 40),
+    "write_file"       = input$path %||% "",
+    "edit_file"        = input$path %||% "",
+    "fetch_url"        = truncate_str(input$url %||% "", 50),
     "install_packages" = paste(unlist(input$packages), collapse = ", "),
-    "git_diff"       = input$path %||% "(all)",
-    "git_commit"     = truncate_str(input$message %||% "", 50),
+    "git_diff"         = input$path %||% "(all)",
+    "git_commit"       = truncate_str(input$message %||% "", 50),
     ""
   )
   if (is.null(preview)) "" else as.character(preview)
 }
 
-#' Extract a concise status label for the tool summary row
+#' Concise status label for tool summary row
 #' @keywords internal
 extract_status_label <- function(tool_name, result, is_error) {
   if (is_error) {
-    return(truncate_str(sub("^ERROR:?\\s*", "", sub("\\n.*", "", result)), 40))
+    first <- sub("\\n.*", "",
+                 sub("^(ERROR:?|ABORTED:?|REFUSED:?)\\s*", "", result))
+    return(truncate_str(first, 36))
   }
-  # Tool-specific concise labels
-  dims <- regmatches(result, regexpr("\\d+\\s*rows?\\s*x\\s*\\d+\\s*col", result, perl = TRUE))
+  dims <- regmatches(result, regexpr("\\d+\\s*rows?\\s*x\\s*\\d+\\s*col",
+                                     result, perl = TRUE))
   if (length(dims) > 0 && dims != "") return(gsub("\\s+", "", dims))
-  n_matched <- regmatches(result, regexpr("Found \\d+ matches", result, perl = TRUE))
+  n_matched <- regmatches(result, regexpr("Found \\d+ matches",
+                                          result, perl = TRUE))
   if (length(n_matched) > 0 && n_matched != "") return(n_matched)
   if (startsWith(result, "Successfully")) return("ok")
-  if (nchar(result) < 40) return(trimws(result))
+  if (nchar(result) < 36) return(trimws(result))
   "done"
 }
 
-#' Truncate a string with ellipsis
+#' Truncate with ellipsis
 #' @keywords internal
 truncate_str <- function(x, n = 60) {
   if (is.null(x) || nchar(x) <= n) return(x %||% "")
   paste0(substr(x, 1, n - 1), "\u2026")
 }
 
-# ── Diff block (colored +/- lines) ─────────────────────────────────────────
+# ── Diff block ─────────────────────────────────────────────────────────────
 
 #' @keywords internal
 render_diff_block <- function(diff_text) {
@@ -594,7 +620,7 @@ render_diff_block <- function(diff_text) {
   shiny::div(class = "sparx-diff", shiny::tagList(rendered))
 }
 
-# ── Todo list card ─────────────────────────────────────────────────────────
+# ── Todo list ──────────────────────────────────────────────────────────────
 
 #' @keywords internal
 render_todo_list <- function(todos) {
@@ -617,30 +643,30 @@ render_todo_list <- function(todos) {
   )
 }
 
-# ── Tool-name prettifier ───────────────────────────────────────────────────
+# ── Pretty tool names ──────────────────────────────────────────────────────
 
 #' @keywords internal
 pretty_tool_name <- function(name) {
   labels <- c(
-    inspect_data       = "inspect data",
-    run_r_preview      = "run preview",
-    check_package      = "check package",
-    read_editor        = "read editor",
-    list_files         = "list files",
-    read_file          = "read file",
-    grep_files         = "grep",
-    write_file         = "write file",
-    edit_file          = "edit file",
-    inspect_plot       = "inspect plot",
-    install_packages   = "install packages",
-    todo_write         = "update tasks",
-    run_in_session     = "run live",
-    get_session_state  = "session state",
-    fetch_url          = "fetch url",
-    git_status         = "git status",
-    git_diff           = "git diff",
-    git_log            = "git log",
-    git_commit         = "git commit"
+    inspect_data       = "inspect_data",
+    run_r_preview      = "run_r_preview",
+    check_package      = "check_package",
+    read_editor        = "read_editor",
+    list_files         = "list_files",
+    read_file          = "read_file",
+    grep_files         = "grep_files",
+    write_file         = "write_file",
+    edit_file          = "edit_file",
+    inspect_plot       = "inspect_plot",
+    install_packages   = "install_packages",
+    todo_write         = "todo_write",
+    run_in_session     = "run_in_session",
+    get_session_state  = "get_session_state",
+    fetch_url          = "fetch_url",
+    git_status         = "git_status",
+    git_diff           = "git_diff",
+    git_log            = "git_log",
+    git_commit         = "git_commit"
   )
   lbl <- labels[name]
   if (is.na(lbl)) name else unname(lbl)
