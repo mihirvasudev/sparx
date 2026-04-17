@@ -69,6 +69,11 @@ call_claude_streaming <- function(system_prompt,
   # Buffer for partial SSE lines across chunks
   line_buffer <- ""
 
+  # Disable cli ANSI colors — otherwise httr2's progress output leaks
+  # terminal escape codes into the Shiny gadget
+  old_cli <- options(cli.num_colors = 1L, cli.hyperlink = FALSE)
+  on.exit(options(old_cli), add = TRUE)
+
   req <- httr2::request(ANTHROPIC_API_URL) |>
     httr2::req_headers(
       `x-api-key` = api_key,

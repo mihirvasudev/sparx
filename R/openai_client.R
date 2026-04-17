@@ -142,6 +142,11 @@ call_openai_streaming <- function(system_prompt,
   state$line_buffer <- ""
   state$tool_seen_index <- integer()  # which indices have triggered on_tool_start
 
+  # Disable cli ANSI colors — otherwise httr2's progress output leaks
+  # terminal escape codes into the Shiny gadget
+  old_cli <- options(cli.num_colors = 1L, cli.hyperlink = FALSE)
+  on.exit(options(old_cli), add = TRUE)
+
   req <- httr2::request(OPENAI_API_URL) |>
     httr2::req_headers(
       Authorization = paste("Bearer", api_key),

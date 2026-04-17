@@ -17,83 +17,102 @@ chat_css <- function() {
   .sparx-thread {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
-    background: #f9fafb;
+    overflow-x: hidden;
+    padding: 14px 16px;
+    background: #fafafa;
+    scroll-behavior: smooth;
   }
   .sparx-welcome {
-    padding: 24px;
-    text-align: center;
+    padding: 20px 16px;
+    text-align: left;
     color: #6b7280;
+    font-size: 13px;
+    line-height: 1.6;
   }
   .sparx-welcome h3 {
     color: #111827;
-    margin-bottom: 8px;
+    margin: 0 0 10px 0;
+    font-size: 15px;
+    font-weight: 600;
   }
   .sparx-welcome ul {
     text-align: left;
-    margin-top: 16px;
-    padding-left: 20px;
+    margin: 10px 0 0 0;
+    padding-left: 18px;
+  }
+  .sparx-welcome li {
+    margin: 4px 0;
   }
   .sparx-bubble {
-    margin-bottom: 12px;
-    padding: 10px 14px;
+    margin-bottom: 10px;
+    padding: 9px 13px;
     border-radius: 10px;
     max-width: 100%;
     word-wrap: break-word;
-    line-height: 1.5;
+    line-height: 1.55;
+    font-size: 13px;
   }
   .sparx-user {
     background: #2563eb;
     color: white;
-    margin-left: 20%;
+    margin-left: 15%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   }
   .sparx-assistant {
     background: white;
     color: #111827;
     border: 1px solid #e5e7eb;
-    margin-right: 10%;
+    margin-right: 5%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
   }
   .sparx-assistant pre {
-    background: #1f2937;
-    color: #f3f4f6;
-    padding: 10px;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
     border-radius: 6px;
     overflow-x: auto;
-    margin: 8px 0;
+    margin: 8px 0 6px 0;
     font-size: 12px;
     font-family: 'SF Mono', Monaco, Consolas, monospace;
+    line-height: 1.5;
   }
   .sparx-assistant code:not(pre code) {
     background: #f3f4f6;
-    padding: 1px 4px;
+    padding: 1px 5px;
     border-radius: 3px;
     font-size: 12px;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    color: #1e40af;
   }
   .sparx-code-actions {
     display: flex;
-    gap: 6px;
-    margin-top: 6px;
+    gap: 4px;
+    margin: 4px 0 0 0;
   }
   .sparx-code-actions button {
-    background: #e0e7ff;
-    border: 1px solid #c7d2fe;
-    color: #3730a3;
+    background: white;
+    border: 1px solid #d1d5db;
+    color: #4b5563;
     padding: 3px 10px;
     border-radius: 4px;
     font-size: 11px;
     cursor: pointer;
     font-weight: 500;
+    transition: all 0.15s;
   }
   .sparx-code-actions button:hover {
-    background: #c7d2fe;
+    background: #eef2ff;
+    border-color: #a5b4fc;
+    color: #3730a3;
   }
   .sparx-code-actions button.sparx-run {
-    background: #d1fae5;
-    border-color: #a7f3d0;
-    color: #065f46;
+    background: #10b981;
+    border-color: #10b981;
+    color: white;
   }
   .sparx-code-actions button.sparx-run:hover {
-    background: #a7f3d0;
+    background: #059669;
+    border-color: #059669;
   }
   .sparx-streaming-cursor {
     display: inline-block;
@@ -124,56 +143,73 @@ chat_css <- function() {
     color: #9ca3af;
   }
 
-  /* Controls bar (toggles + token usage) */
+  /* Controls bar — single compact row */
   .sparx-controls {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 4px;
+    padding: 4px 10px;
     border-bottom: 1px solid #e5e7eb;
     background: #f9fafb;
-    font-size: 11px;
+    font-size: 10px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-height: 28px;
   }
   .sparx-mode-label {
-    color: #6b7280;
+    color: #9ca3af;
     font-weight: 500;
-    margin-right: 4px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
   }
   .sparx-toggle {
-    padding: 2px 8px !important;
-    font-size: 10px !important;
-    line-height: 1.4 !important;
+    padding: 1px 6px !important;
+    font-size: 9px !important;
+    line-height: 1.3 !important;
     background: white !important;
     border: 1px solid #d1d5db !important;
-    border-radius: 4px !important;
-    color: #4b5563 !important;
-    height: auto !important;
+    border-radius: 3px !important;
+    color: #6b7280 !important;
+    height: 18px !important;
+    margin: 0 !important;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .sparx-toggle:hover {
-    background: #f3f4f6 !important;
+    background: #eef2ff !important;
+    color: #4338ca !important;
+    border-color: #c7d2fe !important;
   }
   .sparx-usage {
     margin-left: auto;
     color: #9ca3af;
     font-family: 'SF Mono', Monaco, monospace;
-    font-size: 10px;
+    font-size: 9px;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .sparx-separator {
-    color: #d1d5db;
+    color: #e5e7eb;
     margin: 0 2px;
+    flex-shrink: 0;
   }
-  /* Compact the provider dropdown to match toggle height */
+  /* Provider dropdown — tight inline with toggles */
   .sparx-controls .form-group {
-    margin-bottom: 0 !important;
+    margin: 0 !important;
     display: inline-block;
+    flex-shrink: 0;
   }
   .sparx-controls select.form-control {
-    height: 22px !important;
-    padding: 0 20px 0 6px !important;
-    font-size: 10px !important;
-    line-height: 1.2 !important;
+    height: 18px !important;
+    padding: 0 18px 0 5px !important;
+    font-size: 9px !important;
+    line-height: 1.3 !important;
     background-color: white !important;
     border-color: #d1d5db !important;
+    border-radius: 3px !important;
+    min-width: 130px !important;
   }
   .sparx-send-group {
     display: flex;
@@ -659,11 +695,14 @@ cmd_enter_js <- function() {
     });
   }
 
-  // Auto-scroll thread on update
-  var thread = null;
+  // Auto-scroll thread on update, but ONLY when user is already near the bottom.
+  // If they've scrolled up to read earlier content, leave them alone.
+  var sparxLastScrollCheck = 0;
   setInterval(function() {
     var t = document.getElementById('sparx-thread');
-    if (t) t.scrollTop = t.scrollHeight;
-  }, 500);
+    if (!t) return;
+    var distanceFromBottom = t.scrollHeight - t.scrollTop - t.clientHeight;
+    if (distanceFromBottom < 80) t.scrollTop = t.scrollHeight;
+  }, 400);
   "
 }
