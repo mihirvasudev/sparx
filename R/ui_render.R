@@ -163,24 +163,53 @@ cmd_enter_js <- function() {
 
 # ── Welcome / empty state ──────────────────────────────────────────────────
 
-#' Session-aware welcome card with clickable starter prompts
+#' Session-aware welcome card with clickable starter prompts + key-setup fallback
 #'
 #' Reads the user's .GlobalEnv and tailors starter prompts to loaded data.
+#' If no provider is configured, pivots to a setup guide.
 #' @keywords internal
 welcome_message_html <- function() {
-  # Detect what's in the session
+  configured <- tryCatch(configured_providers(), error = function(e) character())
+
+  # No API key configured at all — show setup guide, not starters
+  if (length(configured) == 0) {
+    return(shiny::HTML(paste0(
+      '<h3>Welcome to sparx</h3>',
+      '<div class="sparx-welcome-intro">',
+      "Let\u2019s get you set up. You need an API key for <strong>one</strong> ",
+      "provider to start:",
+      '</div>',
+      '<div style="margin: 10px 0; font-size: 12px; line-height: 1.7;">',
+      '<strong>Anthropic (Claude)</strong> \u2014 ',
+      'get a key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>, then in the R Console:',
+      '<pre style="margin: 4px 0; padding: 6px 10px;"><code>sparx::set_api_key()</code></pre>',
+      '<strong>OpenAI (GPT)</strong> \u2014 ',
+      'get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>, then:',
+      '<pre style="margin: 4px 0; padding: 6px 10px;"><code>sparx::set_api_key(provider = "openai")</code></pre>',
+      '</div>',
+      privacy_note_html(),
+      '<div style="margin-top: 12px; font-size: 11px; color: var(--sparx-color-text-muted);">',
+      "After saving your key, close this panel (top-right Close button) and reopen via <strong>Addins \u2192 Open sparx Chat</strong>.",
+      '</div>'
+    )))
+  }
+
+  # Detect dataframes for session-aware starters
   dfs <- list_dataframes()
   df_names <- names(dfs)
 
   intro <- if (length(df_names) == 0) {
-    "I don't see any dataframes loaded yet. Load some data and I can help you analyze it."
+    paste0(
+      "I don\u2019t see any dataframes loaded yet. Load some data and ask me ",
+      "a question \u2014 I'll handle the rest."
+    )
   } else if (length(df_names) == 1) {
     df <- dfs[[df_names[1]]]
-    sprintf("I see you have <code>%s</code> loaded (%d rows x %d cols). Ready when you are.",
+    sprintf("I see you have <code>%s</code> loaded (%d rows \u00d7 %d cols). Ready when you are.",
             escape_html(df_names[1]), df$rows, df$cols)
   } else {
     summaries <- sapply(df_names[1:min(3, length(df_names))], function(n) {
-      sprintf("<code>%s</code> (%dx%d)",
+      sprintf("<code>%s</code> (%d\u00d7%d)",
               escape_html(n), dfs[[n]]$rows, dfs[[n]]$cols)
     })
     sprintf("You have %d dataframes loaded: %s.",
@@ -189,20 +218,16 @@ welcome_message_html <- function() {
 
   # Build starter prompts
   starters <- character()
-
   if (length(df_names) > 0) {
     main_df <- df_names[1]
     starters <- c(starters,
-      sprintf("Summarize %s and identify anything unusual.", main_df),
+      sprintf("Summarize %s and flag anything unusual.", main_df),
       sprintf("Suggest the most informative analysis for %s.", main_df)
     )
-
-    # Look for common column patterns for test suggestions
     cols <- dfs[[main_df]]$columns
     types <- vapply(cols, function(c) c$type, character(1))
     numeric_cols <- vapply(cols, function(c) c$name, character(1))[grepl("numeric|integer", types)]
     factor_cols <- vapply(cols, function(c) c$name, character(1))[grepl("factor|character", types)]
-
     if (length(numeric_cols) > 0 && length(factor_cols) > 0) {
       starters <- c(starters,
         sprintf("Compare %s across %s groups in %s, check assumptions, pick the right test.",
@@ -211,12 +236,11 @@ welcome_message_html <- function() {
   } else {
     starters <- c(
       "Load mtcars into df and help me explore it.",
-      "What's the most common statistical test for comparing two independent groups?",
-      "Walk me through a typical research workflow in R."
+      "Which statistical test should I use for comparing two independent groups?",
+      "Walk me through a typical clinical-research analysis workflow in R."
     )
   }
 
-  # Render
   starter_html <- paste(
     sprintf(
       '<button class="sparx-starter" data-prompt="%s">%s</button>',
@@ -228,8 +252,23 @@ welcome_message_html <- function() {
   shiny::HTML(paste0(
     '<h3>sparx</h3>',
     '<div class="sparx-welcome-intro">', intro, '</div>',
-    starter_html
+    starter_html,
+    privacy_note_html()
   ))
+}
+
+#' Short privacy note shown at bottom of welcome card
+#' @keywords internal
+privacy_note_html <- function() {
+  paste0(
+    '<div style="margin-top: 16px; padding: 8px 10px; background: var(--sparx-color-bg-muted); ',
+    'border-left: 2px solid var(--sparx-color-text-subtle); font-size: 10px; color: var(--sparx-color-text-muted); line-height: 1.5;">',
+    '<strong>Privacy:</strong> your prompts, code, and dataframe <em>schemas</em> ',
+    '(column names + types, not row data) are sent to the model provider. ',
+    '<strong>Do not use sparx with PHI/PII unless your institution has a BAA</strong> ',
+    'with Anthropic or OpenAI.',
+    '</div>'
+  )
 }
 
 # ── Message bubbles ────────────────────────────────────────────────────────

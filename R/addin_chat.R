@@ -10,17 +10,12 @@ open_chat <- function() {
     stop("sparx requires `shiny` and `miniUI`. Install with install.packages(c('shiny', 'miniUI')).")
   }
 
-  # Need at least one provider configured
+  # If we already have a provider configured, make sure it's the active one.
+  # If no provider is configured, we still open the chat — the welcome card
+  # will show the setup guide. This is a much better first-run experience
+  # than an immediate password-prompt dialog the user can't see yet.
   configured <- configured_providers()
-  if (length(configured) == 0) {
-    if (interactive()) {
-      message("sparx: no API key configured. Let's set one up for ",
-              provider_info()$name, ".")
-      set_api_key()
-    } else {
-      stop("Run sparx::set_api_key() first.")
-    }
-  } else if (!(get_provider() %in% configured)) {
+  if (length(configured) > 0 && !(get_provider() %in% configured)) {
     set_provider(configured[1])
   }
 
@@ -280,16 +275,9 @@ open_chat <- function() {
                           list(render_assistant_bubble(txt, streaming = FALSE))))
               current_assistant("")
             }
-            # Look up the tool's input from the latest messages for preview text
-            last_asst <- tail(new_messages, 1)[[1]]
-            input_preview <- tryCatch({
-              # Not available yet at start — it's in the incoming stream
-              ""
-            }, error = function(e) "")
-            active_tool(list(name = name, id = id, input_preview = input_preview))
+            active_tool(list(name = name, id = id, input_preview = ""))
           },
           on_tool_result = function(name, id, result_text) {
-            # Find the tool input from the current messages so we can preview it
             tool_input <- find_tool_input(messages_state_snapshot(new_messages, thread_ui()), id)
             thread_ui(c(thread_ui(),
                         list(render_tool_result(name, result_text, input = tool_input))))
@@ -300,9 +288,12 @@ open_chat <- function() {
           }
         ),
         error = function(e) {
+          # Translate to a friendly, actionable message
+          friendly <- humanize_error(e, provider = get_provider())
           list(messages = new_messages,
-               final_text = paste0("**Error:** ", conditionMessage(e)),
-               iterations = 0)
+               final_text = friendly,
+               iterations = 0,
+               error = TRUE)
         }
       )
 
@@ -311,6 +302,11 @@ open_chat <- function() {
         thread_ui(c(thread_ui(),
                     list(render_assistant_bubble(final_txt, streaming = FALSE))))
         current_assistant("")
+      }
+      # Append an error bubble if run_agentic_turn failed early
+      if (isTRUE(result$error) && nchar(result$final_text %||% "") > 0) {
+        thread_ui(c(thread_ui(),
+                    list(render_assistant_bubble(result$final_text, streaming = FALSE))))
       }
 
       messages(result$messages)

@@ -1,172 +1,202 @@
 # sparx
 
-> **Claude Code-style AI pair-programmer for RStudio.** Describe what you want in English. sparx reads your data, writes the code, runs it, fixes errors, and hands you a verified result.
+> **Claude Code-style AI pair-programmer for RStudio.** Specialised for statistics in medical and biomedical research. Free, open-source, BYOK. Works with Claude *or* GPT.
 
-[![R package](https://img.shields.io/badge/R%20package-0.8.0-blue.svg)](https://github.com/mihirvasudev/sparx)
+[![R package](https://img.shields.io/badge/R%20package-1.0.0-blue.svg)](https://github.com/mihirvasudev/sparx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-## What it is
+## Why sparx
 
-sparx is an RStudio addin that brings an **agentic AI assistant** into your IDE. Unlike autocomplete tools, sparx has **19 tools** for reading your data, your files, your R session, the web, and git — and it uses them iteratively to ship a working answer.
+If you've used Claude Code or Cursor, this is the R equivalent — but baked in to RStudio. Describe what you want in English. sparx reads your data, writes the code, runs it in a sandbox, fixes errors, and hands you a verified result with Insert / Run buttons.
 
-Specialized for **statistical workflows in medical and biomedical research**.
+### sparx vs Posit Assistant
 
-## What makes it different
+Posit's own AI assistant is excellent. If your institution happily pays the subscription, use it. sparx is for everyone else:
 
-- **Agentic loop, not just autocomplete** — sparx can inspect, plan, run, verify, and iterate in a single turn
-- **Reads your session** — current dataframes, loaded packages, open scripts, plot output
-- **Project-aware file system** — list/read/grep across your project; targeted edits with visible diffs
-- **Runs code two ways** — sandboxed preview for verification, live session (opt-in) for state changes
-- **Statistical rigor baked in** — system prompt enforces assumption checks, effect sizes, idiomatic R
-- **Everything stays local** — BYOK (your Anthropic key), system-keyring storage, no sparx-owned servers
-- **Conversations persist** — resume where you left off, per project
+|  | Posit Assistant | sparx |
+|---|---|---|
+| **Cost** | $20/month subscription | Free (BYOK — you pay only the model provider's API usage) |
+| **Providers** | Anthropic only | Anthropic **or** OpenAI, switchable mid-session |
+| **Source** | Closed, proprietary | MIT open source, fork-friendly |
+| **Data path** | Your machine → Posit → Anthropic | Your machine → provider, directly |
+| **Target** | General R users | Stats-specialised (medical research, biostats) |
+
+A 30-minute research session on sparx typically costs **$0.20 – $0.80** in API usage on default models.
 
 ## Install
 
+In the **RStudio Console**, paste these two lines:
+
 ```r
-# install.packages("remotes")
+install.packages("remotes")
 remotes::install_github("mihirvasudev/sparx")
 ```
 
-## Setup
+That installs sparx and everything it needs. Then: **Session → Restart R** (`Cmd+Shift+F10`).
 
-1. Get an API key from your preferred provider:
-   - **Anthropic (Claude)** — [console.anthropic.com](https://console.anthropic.com)
-   - **OpenAI (GPT)** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+Verify:
+```r
+packageVersion("sparx")
+# [1] '1.0.0'
+```
 
-2. Store it securely (one-time):
+## First run
+
+### Option A: the one-liner demo
+
+```r
+sparx::demo_workflow()
+```
+
+This loads a simulated blood-pressure trial dataset and opens the chat with a pre-filled prompt. If you don't have an API key yet, the chat will show you how to get one. **Fastest way to see sparx in action.**
+
+### Option B: bring your own data
+
+1. Get an API key from **one** provider:
+   - **Anthropic (Claude)** — [console.anthropic.com](https://console.anthropic.com) — recommended for stats
+   - **OpenAI (GPT)** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys) — works just as well, often cheaper
+
+2. Store it (the key is encrypted in your system keychain — never touches disk as plaintext):
    ```r
-   # Anthropic is the default:
-   sparx::set_api_key()
-
-   # Or, for OpenAI:
-   sparx::set_api_key(provider = "openai")
-
-   # You can configure both — switch between them from the chat panel dropdown
+   sparx::set_api_key()                       # for Anthropic
+   sparx::set_api_key(provider = "openai")    # for OpenAI
+   # You can store both — switch from the chat dropdown
    ```
+   macOS will prompt for Keychain access once. Click **Always Allow**.
 
-3. Open RStudio → **Addins** → **Open sparx Chat**
-   - Or bind `Cmd+Shift+A` via **Tools → Modify Keyboard Shortcuts**
-   - The chat header has a **Provider** dropdown to switch between Anthropic and OpenAI mid-session
+3. Open the chat:
+   ```r
+   sparx::open_chat()
+   # Or: Addins menu → Open sparx Chat
+   ```
+   Bind to `Cmd+Shift+A` via **Tools → Modify Keyboard Shortcuts → Addins** for a permanent keybinding.
 
-4. Optional: grant advanced capabilities via the toggles in the chat header
-   - **Live exec** — sparx can run code in your real R session (destructive patterns still blocked)
-   - **Auto-install** — sparx can run `install.packages()` on your behalf
-   - **Git writes** — sparx can create git commits (never auto-pushed)
+4. Type a question. Click **Run** on the suggested code.
 
-## The 19 tools
+## What sparx can do
 
-### Session & data
-| Tool | What it does |
-|------|---|
-| `inspect_data` | Structure + sample rows of a dataframe |
-| `check_package` | Confirm a package is installed + version |
-| `read_editor` | Read lines from the active editor |
-| `run_r_preview` | Execute code in an isolated subprocess (safe preview) |
-| `run_in_session` | Execute code in your live R session (opt-in) |
-| `get_session_state` | Summary of all `.GlobalEnv` objects |
-| `inspect_plot` | See the current plot using Claude's vision |
+19 tools the agent uses autonomously:
 
-### File system (project-scoped)
-| Tool | What it does |
-|------|---|
-| `list_files` | Glob-match files in the project |
-| `read_file` | Read a text file with line numbers |
-| `grep_files` | Regex search across the project |
-| `write_file` | Create a new file |
-| `edit_file` | Targeted find-and-replace with a visible +/- diff |
+| | Category | Tools |
+|---|---|---|
+| 📊 | Data & session | `inspect_data`, `check_package`, `read_editor`, `run_r_preview` (sandboxed), `run_in_session` (live, opt-in), `get_session_state`, `inspect_plot` (via vision) |
+| 📁 | File system | `list_files`, `read_file`, `grep_files`, `write_file`, `edit_file` (with visible diffs) |
+| 🔀 | Git | `git_status`, `git_diff`, `git_log`, `git_commit` (opt-in) |
+| 🌐 | Web | `fetch_url` (HTTPS only) |
+| 📋 | Workflow | `install_packages` (opt-in), `todo_write` (multi-step tracker) |
 
-### Git
-| Tool | What it does |
-|------|---|
-| `git_status` | Short status + branch |
-| `git_diff` | Working-tree or staged diff |
-| `git_log` | Recent commits (oneline) |
-| `git_commit` | Create a commit (opt-in) |
+Plus: vision on your Plots pane, CommonMark + Prism syntax-highlighted responses, session-aware welcome, persistent conversations per project, light and dark mode, slash commands (`/model haiku`, `/clear`, `/retry`, ...), session keychain storage.
 
-### Web + workflow
-| Tool | What it does |
-|------|---|
-| `fetch_url` | Fetch an HTTPS page and return cleaned text |
-| `install_packages` | Install from CRAN (opt-in) |
-| `todo_write` | Maintain a visible checklist for multi-step work |
+## A realistic session
 
-## Example: worked session
-
-> "Fit a mixed-effects model on trial_data where bp_reduction depends on treatment and age, with hospital_id as a random effect. Check assumptions and report properly."
+> 💬 *"Test whether blood-pressure reduction differs across the three treatment groups in trial_demo, adjusting for age. Check assumptions. Report effect size."*
 
 sparx:
-1. **inspect_data(trial_data)** — "150 rows × 8 cols, treatment is a 2-level factor, bp_reduction is numeric..."
-2. **check_package("lme4")** — "installed, v1.1.35.5"
-3. **run_r_preview** — verifies `lmer(bp_reduction ~ treatment + age + (1|hospital_id), data = trial_data)` runs without error
-4. **run_r_preview** — runs `performance::check_model(model)` to validate assumptions
-5. **inspect_plot** — reads the diagnostic plots; flags one outlier in the QQ plot
-6. Presents: a 3-sentence explanation + one code block with Insert / Run / Copy buttons
+1. **Inspects `trial_demo`** → 120 rows, 7 cols, treatment is a 3-level factor
+2. **Checks `lme4`** → installed, v1.1.35.5
+3. **Runs a preview** of an ANCOVA in an isolated subprocess → verifies it works
+4. **Checks assumptions** — normality, homogeneity of variance — runs Shapiro-Wilk and Levene's
+5. **Presents** a 3-sentence explanation + a single R code block with **Insert / Run / Copy**
+6. You click **Run** — the result lands in your R console
 
-Click Run → result appears in your R console. Typical cost: **$0.005–$0.02 per message** on Claude Sonnet.
+Typical cost: **$0.01 – $0.02** per message, ~4 messages per task.
 
-## Right-click actions
+## Privacy & safety
 
-Select any code in your editor, right-click, and pick:
-- **Explain Selection** — plain-English walkthrough of the code
-- **Fix Selection** — sparx diagnoses what's wrong and patches it
-- **Improve Selection** — rewrite in idiomatic tidyverse R
+sparx sends your prompts, your code, and dataframe **schemas** (column names + types — not row data) to the model provider (Anthropic or OpenAI) over HTTPS. Claude/GPT can see what your code does but doesn't see your actual patient rows unless you explicitly ask sparx to include them.
 
-## Keyboard
+**Do not use sparx on PHI/PII unless your institution has a Business Associate Agreement (BAA) with the model provider.** Anthropic and OpenAI both offer BAAs on their Enterprise tiers. Neither is HIPAA-compliant by default.
 
-In the chat input:
-- `Cmd/Ctrl + Enter` — send
+Other safety defaults:
+- BYOK model — your key goes directly from your machine to the provider. sparx has no servers.
+- File operations are sandboxed to your project root; `..` traversal is blocked.
+- Live-session execution is **off by default**; must be turned on per-session.
+- Destructive patterns (`rm(list=ls())`, `unlink`, `system`, `source("http…")`, etc.) are refused even when live mode is on.
+- Three opt-in toggles (Live exec, Auto-install, Git writes) — all default off.
+- Conversations are stored locally at `<project>/.sparx/conversation.json`, with an auto-created `.gitignore` to avoid leaks.
 
-## Privacy & security
+## Troubleshooting
 
-- Your API key is stored in your **system keyring** (macOS Keychain / Windows Credential Locker / gnome-keyring) via the `keyring` package. Never touches disk as plaintext.
-- Requests go directly from your machine to `api.anthropic.com`. No sparx server involved.
-- Dataframe **rows are never sent** — only column names, types, and dimensions. (Exception: if you explicitly ask sparx to write code that references specific values.)
-- Code in your editor **is** sent as context (that's the whole point). Don't use sparx on sensitive/proprietary code you don't want Anthropic to see.
-- File writes are scoped to the project root — sparx will refuse `..` traversal or absolute paths outside the project.
-- Live execution blocks destructive patterns: `file.remove`, `unlink`, `rm(list=ls())`, `system()`, `source("http...")`, etc.
-- Three opt-in toggles (Live exec, Auto-install, Git writes) are all **default off**.
+### "there is no package called 'remotes'"
+Run `install.packages("remotes")` first. Then retry the install.
 
-## Conversations persist
+### "Your API key was rejected"
+Either the key is wrong, revoked, or for the wrong provider. Fix:
+```r
+sparx::set_api_key()                       # Anthropic
+sparx::set_api_key(provider = "openai")    # OpenAI
+```
 
-Your chat history is saved to `<project>/.sparx/conversation.json` and automatically reloaded when you open the chat next time. An `.sparx/.gitignore` is written to ensure conversations don't leak into commits.
-
-Clear a conversation with the "Clear" button in the chat header.
-
-## Typical costs
-
-| Provider | Model | ~Cost per message |
-|---|---|---|
-| Anthropic | claude-sonnet-4-5 (default) | $0.005 – $0.02 |
-| Anthropic | claude-haiku-4-5 | $0.001 – $0.004 |
-| OpenAI | gpt-4o (default) | $0.005 – $0.02 |
-| OpenAI | gpt-4o-mini | $0.001 – $0.004 |
-
-Switch model for the current provider:
+### Rate limit errors (HTTP 429)
+New accounts have tight per-minute caps. Easy fix — switch to a cheaper model:
 ```r
 options(sparx.model = "claude-haiku-4-5-20251001")
-# Or per-provider:
-options(sparx.anthropic_model = "claude-haiku-4-5-20251001")
-options(sparx.openai_model = "gpt-4o-mini")
 ```
+…or wait ~60 seconds and hit Send again. sparx auto-honors `Retry-After` headers.
 
-Switch provider:
+### Keychain won't accept the key
+Use an environment variable instead:
 ```r
-sparx::set_provider("openai")     # or
-sparx::set_provider("anthropic")
-# Or via the dropdown in the chat panel
+# Permanent: add to ~/.Renviron
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# Or for this session:
+Sys.setenv(ANTHROPIC_API_KEY = "sk-ant-...")
 ```
 
-A 30-minute research session with 20–30 tool calls: typically $0.20–$0.80.
+### Chat pane shows weird characters / colors
+Fixed in v0.9.0 — `remotes::install_github("mihirvasudev/sparx", force = TRUE)` and **Restart R**.
+
+### Chat won't open / "no package called 'sparx'"
+Restart R after install (`Session → Restart R` or `Cmd+Shift+F10`). R caches loaded namespaces.
+
+### Network / proxy issues in a hospital
+If you're behind a corporate proxy:
+```r
+Sys.setenv(https_proxy = "http://your-proxy:port")
+```
+
+### Something else?
+Open an issue: https://github.com/mihirvasudev/sparx/issues
+
+## Models and costs
+
+| Provider | Model | ~Cost/message | When to use |
+|---|---|---|---|
+| Anthropic | claude-sonnet-4-5 (default) | $0.005 – $0.02 | Best quality, best reasoning |
+| Anthropic | claude-haiku-4-5 | $0.001 – $0.004 | Fast, cheap, ~80% as good for stats |
+| OpenAI | gpt-4o | $0.005 – $0.02 | Competitive with Sonnet |
+| OpenAI | gpt-4o-mini | $0.001 – $0.004 | Competitive with Haiku |
+
+Switch with `/model haiku` (etc.) in the chat input, or:
+```r
+options(sparx.model = "claude-haiku-4-5-20251001")
+```
+
+## Keyboard shortcuts
+
+In the chat:
+- `Cmd/Ctrl + Enter` — send
+- `Esc` — stop the agent (when streaming)
+- `↑` (in empty input) — recall last message
+- `/` — open slash-command menu
+
+Slash commands: `/clear`, `/model haiku`, `/provider openai`, `/retry`, `/help`.
 
 ## Contributing
 
-PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup. Tests run with `devtools::test()` — 236+ assertions across 8 test files.
+PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup. Tests: 269 assertions across 9 files (`devtools::test()`).
+
+## Roadmap
+
+- **v1.1** — context compaction (for very long conversations), inline per-call approval for live execution, multi-conversation sidebar
+- **v1.2** — RMarkdown / Quarto notebook awareness, plan mode
+- **v2.0** — Integrates with SparsileX (the standalone web app for non-coder researchers — same agent brain, different surface)
 
 Related:
-- [SparsileX](https://github.com/sparsilex/sparsilex) — the standalone AI-native stats web app
-- Inspired by [Clicky](https://github.com/farzaa/clicky) and [Claude Code](https://claude.com/claude-code)
+- [SparsileX](https://github.com/mihirvasudev/sparsilex) — AI-native stats web app (early alpha)
+- Inspired by [Claude Code](https://claude.com/claude-code) and [Clicky](https://github.com/farzaa/clicky)
 
 ## License
 
-MIT © 2026 Mihir Curovana
+MIT © 2026 Mihir Curovana.
