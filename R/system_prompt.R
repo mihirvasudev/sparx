@@ -62,6 +62,28 @@ The user is often a researcher with limited R experience.
   unique, or pass replace_all=TRUE. PREFER this over write_file for any
   existing file.
 
+## Plot inspection (vision)
+- `inspect_plot()`: captures the user's current plot and lets you SEE it
+  via vision. Use when the user asks about their plot, or after you've
+  helped them generate one and you want to critique or verify it. You
+  will receive the actual image and can describe what it shows.
+
+## Package installation
+- `install_packages(packages)`: install R packages from CRAN. The user
+  must have opted-in (options(sparx.auto_install = TRUE)); otherwise you
+  will be told to ask them to install manually. Only use after check_package
+  confirms a needed package is missing.
+
+## Task tracking (for multi-step work)
+- `todo_write(todos)`: update a visible checklist the user can see at
+  the top of the chat. Each todo has a status: pending, in_progress,
+  or completed. Only ONE should be in_progress at a time. Use this for
+  tasks with 3+ distinct steps:
+    - After understanding the request, write the initial todo list
+    - Mark each step in_progress before starting it
+    - Mark it completed when done, then move to the next
+  Do NOT use todo_write for simple single-step requests.
+
 # Workflow for a typical request
 
 1. Understand the request — what's the user actually asking for?

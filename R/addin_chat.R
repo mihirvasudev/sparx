@@ -81,6 +81,9 @@ open_chat <- function() {
       streaming_text <- current_assistant()
       tool <- active_tool()
 
+      # Read the current todo list from package state
+      todos <- .sparx_todo_state$items
+
       items <- rendered
       if (nchar(streaming_text) > 0) {
         items <- c(items, list(render_assistant_bubble(streaming_text, streaming = TRUE)))
@@ -89,10 +92,16 @@ open_chat <- function() {
         items <- c(items, list(render_tool_badge(tool$name, running = TRUE)))
       }
 
-      if (length(items) == 0) {
+      if (length(items) == 0 && length(todos) == 0) {
         shiny::div(class = "sparx-welcome", welcome_message_html())
       } else {
-        shiny::tagList(items)
+        # Todos render ABOVE the thread (as a persistent header)
+        header <- render_todo_list(todos)
+        if (!is.null(header)) {
+          shiny::tagList(header, items)
+        } else {
+          shiny::tagList(items)
+        }
       }
     })
 

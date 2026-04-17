@@ -12,6 +12,66 @@
 
 MAX_AGENT_ITERATIONS <- 12L
 
+#' Convert a tool result string into Anthropic-format content payload
+#'
+#' Most tool results are plain text, but some (inspect_plot) embed a special
+#' image marker. This function splits such results into a mixed content
+#' array of text + image blocks so Claude's vision can see attached images.
+#'
+#' @return Either a character string (for plain text) OR a list of content
+#'   blocks (if any images were found)
+#' @keywords internal
+tool_result_to_content <- function(result) {
+  if (is.null(result) || !is.character(result) || length(result) != 1) {
+    return(as.character(result))
+  }
+
+  # Find SPARX_IMAGE markers
+  pattern <- "<<<SPARX_IMAGE ([a-z]+)>>>\\s*\\n([A-Za-z0-9+/=\\s]+?)\\s*\\n<<<END SPARX_IMAGE>>>"
+  match_info <- regmatches(result, regexec(pattern, result, perl = TRUE))[[1]]
+
+  if (length(match_info) < 3) {
+    # No image marker — plain text result
+    return(result)
+  }
+
+  # Build a mixed content array
+  # (Anthropic accepts content as either a string OR an array of blocks)
+  media_type <- paste0("image/", match_info[2])
+  image_data <- gsub("\\s", "", match_info[3])  # strip any whitespace from base64
+
+  # Text before + after the image
+  full_match <- match_info[1]
+  match_start <- regexpr(pattern, result, perl = TRUE)
+  match_len <- attr(match_start, "match.length")
+
+  before <- trimws(substring(result, 1, match_start - 1))
+  after <- trimws(substring(result, match_start + match_len))
+
+  blocks <- list()
+  if (nchar(before) > 0) {
+    blocks[[length(blocks) + 1]] <- list(type = "text", text = before)
+  }
+  blocks[[length(blocks) + 1]] <- list(
+    type = "image",
+    source = list(
+      type = "base64",
+      media_type = media_type,
+      data = image_data
+    )
+  )
+  if (nchar(after) > 0) {
+    blocks[[length(blocks) + 1]] <- list(type = "text", text = after)
+  }
+  if (length(blocks) == 1 && blocks[[1]]$type == "image") {
+    # Anthropic requires tool_result to have non-empty text content
+    # alongside images; add a minimal caption.
+    blocks[[length(blocks) + 1]] <- list(type = "text", text = "(plot captured)")
+  }
+
+  blocks
+}
+
 #' Check whether a tool result looks like an error
 #' @keywords internal
 is_tool_error <- function(result) {
@@ -81,10 +141,14 @@ run_agentic_turn <- function(messages,
       result <- execute_tool(call$name, call$input)
       err <- is_tool_error(result)
       on_tool_result(call$name, call$id, result)
+
+      # Check for embedded image payload (from inspect_plot)
+      content_payload <- tool_result_to_content(result)
+
       tool_results[[length(tool_results) + 1]] <- list(
         type = "tool_result",
         tool_use_id = call$id,
-        content = result,
+        content = content_payload,
         is_error = err
       )
     }

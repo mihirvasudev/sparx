@@ -124,6 +124,79 @@ chat_css <- function() {
     color: #9ca3af;
   }
 
+  /* Diff view */
+  .sparx-diff {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 3px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11px;
+    max-height: 200px;
+    overflow: auto;
+    white-space: pre;
+  }
+  .sparx-diff-line-add {
+    color: #065f46;
+    background: #d1fae5;
+    display: block;
+  }
+  .sparx-diff-line-del {
+    color: #991b1b;
+    background: #fee2e2;
+    display: block;
+  }
+
+  /* Image preview */
+  .sparx-image-preview {
+    margin-top: 6px;
+    max-width: 100%;
+  }
+  .sparx-image-preview img {
+    max-width: 100%;
+    max-height: 280px;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+  }
+
+  /* Todo list */
+  .sparx-todos {
+    margin: 10px 0;
+    padding: 10px 12px;
+    background: #fefce8;
+    border-left: 3px solid #eab308;
+    border-radius: 4px;
+  }
+  .sparx-todos-header {
+    font-weight: 600;
+    font-size: 11px;
+    color: #78350f;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sparx-todo-item {
+    font-size: 12px;
+    padding: 2px 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .sparx-todo-item.done {
+    color: #6b7280;
+    text-decoration: line-through;
+  }
+  .sparx-todo-item.active {
+    font-weight: 600;
+    color: #92400e;
+  }
+  .sparx-todo-marker {
+    font-family: monospace;
+    flex-shrink: 0;
+    width: 14px;
+  }
+
   /* Tool execution badges */
   .sparx-tool {
     display: flex;
@@ -321,10 +394,63 @@ render_tool_badge <- function(tool_name, running = TRUE) {
 }
 
 #' Render a completed tool call with its result (collapsible)
+#'
+#' Parses special markers in the result:
+#' - <<<DIFF>>>...<<<END DIFF>>>            → colored +/- diff view
+#' - <<<SPARX_IMAGE png>>>...<<<END ...>>>  → inline image preview
 #' @keywords internal
 render_tool_result <- function(tool_name, result) {
   result_text <- if (is.null(result)) "" else as.character(result)
-  # Truncate for display
+
+  # Special rendering for edit_file diff
+  diff_match <- regmatches(
+    result_text,
+    regexec("<<<DIFF>>>\\s*\\n([\\s\\S]*?)\\n<<<END DIFF>>>", result_text, perl = TRUE)
+  )[[1]]
+
+  if (length(diff_match) >= 2) {
+    diff_content <- diff_match[2]
+    prose <- trimws(sub("<<<DIFF>>>[\\s\\S]*<<<END DIFF>>>", "", result_text, perl = TRUE))
+    return(shiny::div(
+      class = "sparx-tool",
+      shiny::span(class = "sparx-tool-icon", "\u2713"),
+      shiny::div(
+        class = "sparx-tool-body",
+        shiny::div(class = "sparx-tool-name", pretty_tool_name(tool_name)),
+        shiny::div(class = "sparx-tool-result", prose),
+        render_diff_block(diff_content)
+      )
+    ))
+  }
+
+  # Special rendering for captured plot
+  img_match <- regmatches(
+    result_text,
+    regexec("<<<SPARX_IMAGE ([a-z]+)>>>\\s*\\n([A-Za-z0-9+/=\\s]+?)\\s*\\n<<<END SPARX_IMAGE>>>",
+            result_text, perl = TRUE)
+  )[[1]]
+
+  if (length(img_match) >= 3) {
+    media_type <- paste0("image/", img_match[2])
+    img_data <- gsub("\\s", "", img_match[3])
+    return(shiny::div(
+      class = "sparx-tool",
+      shiny::span(class = "sparx-tool-icon", "\u2713"),
+      shiny::div(
+        class = "sparx-tool-body",
+        shiny::div(class = "sparx-tool-name", pretty_tool_name(tool_name)),
+        shiny::div(
+          class = "sparx-image-preview",
+          shiny::HTML(paste0(
+            '<img src="data:', media_type, ';base64,', img_data,
+            '" alt="Plot captured by sparx" />'
+          ))
+        )
+      )
+    ))
+  }
+
+  # Default: plain text
   display_text <- if (nchar(result_text) > 1200) {
     paste0(substr(result_text, 1, 1200), "\n\n... [truncated in UI — Claude saw full output]")
   } else {
@@ -333,12 +459,64 @@ render_tool_result <- function(tool_name, result) {
 
   shiny::div(
     class = "sparx-tool",
-    shiny::span(class = "sparx-tool-icon", "✓"),
+    shiny::span(class = "sparx-tool-icon", "\u2713"),
     shiny::div(
       class = "sparx-tool-body",
       shiny::div(class = "sparx-tool-name", pretty_tool_name(tool_name)),
       shiny::div(class = "sparx-tool-result", display_text)
     )
+  )
+}
+
+#' Render a +/- diff block with color highlighting
+#' @keywords internal
+render_diff_block <- function(diff_text) {
+  lines <- strsplit(diff_text, "\n", fixed = TRUE)[[1]]
+  rendered <- lapply(lines, function(l) {
+    if (startsWith(l, "+ ")) {
+      shiny::HTML(paste0(
+        '<span class="sparx-diff-line-add">+ ',
+        escape_html(substring(l, 3)), '</span>'
+      ))
+    } else if (startsWith(l, "- ")) {
+      shiny::HTML(paste0(
+        '<span class="sparx-diff-line-del">- ',
+        escape_html(substring(l, 3)), '</span>'
+      ))
+    } else {
+      shiny::HTML(paste0('<span>', escape_html(l), '</span>'))
+    }
+  })
+  shiny::div(class = "sparx-diff", shiny::tagList(rendered))
+}
+
+#' Render the current todo list (from .sparx_todo_state)
+#' @keywords internal
+render_todo_list <- function(todos) {
+  if (length(todos) == 0) return(NULL)
+
+  items <- lapply(todos, function(t) {
+    status <- t$status %||% "pending"
+    cls <- paste0("sparx-todo-item ",
+                  switch(status,
+                         "completed" = "done",
+                         "in_progress" = "active",
+                         ""))
+    marker <- switch(status,
+                     "completed" = "[x]",
+                     "in_progress" = "[>]",
+                     "[ ]")
+    shiny::div(
+      class = cls,
+      shiny::span(class = "sparx-todo-marker", marker),
+      shiny::span(t$content %||% "")
+    )
+  })
+
+  shiny::div(
+    class = "sparx-todos",
+    shiny::div(class = "sparx-todos-header", "Tasks"),
+    shiny::tagList(items)
   )
 }
 
@@ -354,7 +532,10 @@ pretty_tool_name <- function(name) {
     read_file = "Reading file",
     grep_files = "Searching files",
     write_file = "Writing file",
-    edit_file = "Editing file"
+    edit_file = "Editing file",
+    inspect_plot = "Looking at the plot",
+    install_packages = "Installing packages",
+    todo_write = "Updating task list"
   )
   lbl <- labels[name]
   if (is.na(lbl)) name else unname(lbl)

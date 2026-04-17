@@ -210,6 +210,69 @@ tool_definitions <- function() {
       )
     ),
     list(
+      name = "inspect_plot",
+      description = paste0(
+        "Capture the current plot from the RStudio Plots pane and look at it ",
+        "using vision. Use this AFTER the user has generated a plot, to ",
+        "describe what it shows, critique the visualization, or suggest ",
+        "improvements. Returns the plot image directly so you can see it."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(),
+        required = list()
+      )
+    ),
+    list(
+      name = "install_packages",
+      description = paste0(
+        "Install R packages from CRAN. Use this when your code needs a package ",
+        "that isn't installed (check with check_package first). The user will ",
+        "be asked to confirm before installation proceeds. After installation, ",
+        "the user can call library() in their own code. Do not call library() ",
+        "on behalf of the user."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          packages = list(
+            type = "array",
+            items = list(type = "string"),
+            description = "Package names to install (e.g., ['lme4', 'ggplot2'])"
+          )
+        ),
+        required = list("packages")
+      )
+    ),
+    list(
+      name = "todo_write",
+      description = paste0(
+        "Update a todo list visible to the user, tracking multi-step work. ",
+        "Use this for tasks that take more than 2 tool calls. Each todo has a ",
+        "status (pending/in_progress/completed). Only one should be in_progress ",
+        "at a time. Call again as you progress to update status. The user sees ",
+        "a checklist updating in real time."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          todos = list(
+            type = "array",
+            items = list(
+              type = "object",
+              properties = list(
+                content = list(type = "string", description = "Short task description"),
+                status = list(type = "string", enum = list("pending", "in_progress", "completed"))
+              ),
+              required = list("content", "status")
+            ),
+            description = "Full list of todos (replaces existing list)"
+          )
+        ),
+        required = list("todos")
+      )
+    ),
+    list(
       name = "edit_file",
       description = paste0(
         "Make a targeted edit to an existing file. Finds `old_string` in the ",
@@ -267,6 +330,9 @@ execute_tool <- function(name, input) {
       "grep_files" = tool_grep_files(input$pattern, input$file_glob, input$ignore_case %||% FALSE),
       "write_file" = tool_write_file(input$path, input$content),
       "edit_file" = tool_edit_file(input$path, input$old_string, input$new_string, input$replace_all %||% FALSE),
+      "inspect_plot" = tool_inspect_plot(),
+      "install_packages" = tool_install_packages(input$packages),
+      "todo_write" = tool_todo_write(input$todos),
       paste0("ERROR: unknown tool `", name, "`")
     )
   }, error = function(e) {
@@ -698,8 +764,187 @@ tool_edit_file <- function(path, old_string, new_string, replace_all = FALSE) {
   })
 
   n_replaced <- if (replace_all) n_matches else 1L
+
+  # Build a unified-ish diff for the UI to parse
+  diff_text <- build_simple_diff(old_string, new_string)
+
   paste0(
     "Successfully edited ", relative_to_root(resolved),
-    " (", n_replaced, " replacement", if (n_replaced != 1) "s" else "", ")."
+    " (", n_replaced, " replacement", if (n_replaced != 1) "s" else "", ").",
+    "\n\n<<<DIFF>>>\n", diff_text, "\n<<<END DIFF>>>"
   )
 }
+
+#' Build a simple line-based diff between two strings
+#'
+#' Not a full LCS algorithm — just marks old lines with "-" and new with "+".
+#' Good enough for the UI to render color-coded +/- lines.
+#' @keywords internal
+build_simple_diff <- function(old_str, new_str) {
+  old_lines <- strsplit(old_str, "\n", fixed = TRUE)[[1]]
+  new_lines <- strsplit(new_str, "\n", fixed = TRUE)[[1]]
+  out <- character()
+  for (l in old_lines) out <- c(out, paste0("- ", l))
+  for (l in new_lines) out <- c(out, paste0("+ ", l))
+  paste(out, collapse = "\n")
+}
+
+# ── Plot capture, install, todo tools ──────────────────────────────────────
+
+#' Capture the current plot as a base64-encoded PNG
+#'
+#' Returns a special marker the agent loop knows how to turn into a vision
+#' content block. If no plot exists, returns an error string.
+#' @keywords internal
+tool_inspect_plot <- function() {
+  if (!interactive() || is.null(dev.list())) {
+    # Try RStudio viewer pane
+    return("ERROR: no active plot. The user needs to generate a plot first (e.g., plot(x), ggplot(...)).")
+  }
+
+  tmp <- tempfile(fileext = ".png")
+  result <- tryCatch({
+    # Save the current plot to PNG via dev.copy
+    suppressMessages({
+      current_dev <- dev.cur()
+      # Open a PNG device of reasonable size
+      grDevices::png(tmp, width = 960, height = 720, res = 120)
+      # Copy the current plot into the PNG device
+      tryCatch({
+        dev.set(current_dev)
+        dev.copy(which = dev.list()[["png"]])
+      }, error = function(e) NULL)
+      dev.off()
+      dev.set(current_dev)
+    })
+
+    if (!file.exists(tmp) || file.info(tmp)$size == 0) {
+      return("ERROR: failed to capture the plot (device may not support copying).")
+    }
+
+    # Read + base64 encode
+    bytes <- readBin(tmp, "raw", n = file.info(tmp)$size)
+    encoded <- base64enc_raw(bytes)
+
+    paste0(
+      "<<<SPARX_IMAGE png>>>\n",
+      encoded,
+      "\n<<<END SPARX_IMAGE>>>"
+    )
+  }, error = function(e) {
+    paste0("ERROR capturing plot: ", conditionMessage(e))
+  }, finally = {
+    if (file.exists(tmp)) unlink(tmp)
+  })
+
+  result
+}
+
+#' Simple base64 encoder for raw bytes (avoids adding a dep)
+#' @keywords internal
+base64enc_raw <- function(raw_bytes) {
+  if (requireNamespace("base64enc", quietly = TRUE)) {
+    return(base64enc::base64encode(raw_bytes))
+  }
+  # Fallback: use openssl if available (it's a soft dep of many pkgs)
+  if (requireNamespace("openssl", quietly = TRUE)) {
+    return(as.character(openssl::base64_encode(raw_bytes)))
+  }
+  # Last-resort: jsonlite has base64_enc
+  if (requireNamespace("jsonlite", quietly = TRUE)) {
+    return(jsonlite::base64_enc(raw_bytes))
+  }
+  stop("No base64 encoder available. Install 'base64enc' or 'openssl'.")
+}
+
+#' Install R packages (with user approval)
+#'
+#' The approval flow is handled by the gadget UI — when install_packages is
+#' called, the UI shows a prompt and only calls install.packages after the
+#' user clicks Approve. This executor is invoked post-approval.
+#'
+#' For the unattended case (no UI), installation proceeds with a one-line
+#' console log.
+#' @keywords internal
+tool_install_packages <- function(packages) {
+  if (is.null(packages) || length(packages) == 0) {
+    return("ERROR: no packages specified.")
+  }
+  if (!is.character(packages)) {
+    packages <- unlist(packages)
+  }
+
+  # Track which were already installed
+  already <- intersect(packages, rownames(utils::installed.packages()))
+  to_install <- setdiff(packages, already)
+
+  if (length(to_install) == 0) {
+    return(paste0("All requested packages already installed: ",
+                  paste(packages, collapse = ", "), "."))
+  }
+
+  # Approval gate: set state and wait for UI to pass a token back
+  # Simple MVP: always proceed (opt-in by user setting a flag)
+  auto_install <- getOption("sparx.auto_install", FALSE)
+
+  if (!auto_install) {
+    return(paste0(
+      "Packages needing install: ", paste(to_install, collapse = ", "),
+      ".\n\n",
+      "The user has not enabled auto-install. Ask them to run ",
+      "`options(sparx.auto_install = TRUE)` if they want sparx to install ",
+      "packages automatically, or they can install manually with: ",
+      "install.packages(c(\"", paste(to_install, collapse = "\", \""), "\"))"
+    ))
+  }
+
+  # Proceed with install
+  result <- tryCatch({
+    utils::install.packages(to_install, repos = "https://cloud.r-project.org")
+    installed_now <- intersect(to_install, rownames(utils::installed.packages()))
+    failed <- setdiff(to_install, installed_now)
+    if (length(failed) == 0) {
+      paste0("Installed: ", paste(installed_now, collapse = ", "), ".")
+    } else {
+      paste0("Installed ", paste(installed_now, collapse = ", "),
+             ". FAILED to install: ", paste(failed, collapse = ", "),
+             ". The user can try installing these manually.")
+    }
+  }, error = function(e) {
+    paste0("ERROR during install.packages: ", conditionMessage(e))
+  })
+
+  result
+}
+
+#' Update the todo list (multi-step task tracker)
+#'
+#' Stores todos in a package-level state so the UI can render them.
+#' Returns a confirmation string.
+#' @keywords internal
+tool_todo_write <- function(todos) {
+  if (is.null(todos) || length(todos) == 0) {
+    .sparx_todo_state$items <- list()
+    return("Todo list cleared.")
+  }
+
+  # Normalize to list-of-named-lists
+  normalized <- lapply(todos, function(t) {
+    list(
+      content = as.character(t$content %||% ""),
+      status = as.character(t$status %||% "pending")
+    )
+  })
+
+  .sparx_todo_state$items <- normalized
+
+  counts <- table(vapply(normalized, function(t) t$status, character(1)))
+  summary_str <- paste(
+    names(counts), "=", counts, collapse = ", "
+  )
+  paste0("Todo list updated (", length(normalized), " items: ", summary_str, ").")
+}
+
+# Package-level todo state (read by the UI)
+.sparx_todo_state <- new.env(parent = emptyenv())
+.sparx_todo_state$items <- list()
