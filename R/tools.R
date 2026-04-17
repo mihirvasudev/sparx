@@ -14,6 +14,37 @@
 
 # ── Tool schemas (sent to Claude) ──────────────────────────────────────────
 
+#' Tools considered SAFE in plan mode (read-only, no side effects)
+#'
+#' run_r_preview is included because its subprocess is sandboxed — any
+#' changes are discarded. Useful for the agent to actually verify code
+#' before committing to a plan.
+#' @keywords internal
+READ_ONLY_TOOLS <- c(
+  "inspect_data", "check_package", "read_editor", "get_session_state",
+  "run_r_preview", "inspect_plot",
+  "list_files", "read_file", "grep_files",
+  "fetch_url",
+  "git_status", "git_diff", "git_log",
+  "todo_write"
+)
+
+#' Filter tool list for the current mode
+#'
+#' `plan` mode removes write/mutate tools (write_file, edit_file,
+#' run_in_session, install_packages, git_commit). The agent can still
+#' explore the world, verify code in sandbox, and plan.
+#'
+#' @keywords internal
+tool_definitions_filtered <- function(mode = c("normal", "plan")) {
+  mode <- match.arg(mode)
+  tools <- tool_definitions()
+  if (mode == "plan") {
+    tools <- Filter(function(t) t$name %in% READ_ONLY_TOOLS, tools)
+  }
+  tools
+}
+
 #' Anthropic-format tool definitions
 #'
 #' @return List of tool definitions to pass in the `tools` field of the API call

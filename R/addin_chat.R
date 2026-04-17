@@ -55,6 +55,8 @@ open_chat <- function() {
       model_pill_ui("model_pill"),
       provider_select_ui("provider_select"),
       shiny::tags$span(class = "sparx-separator", "|"),
+      shiny::actionButton("toggle_plan", toggle_label("Plan", FALSE),
+                          class = "sparx-toggle"),
       shiny::actionButton("toggle_live", toggle_label("Live", FALSE),
                           class = "sparx-toggle"),
       shiny::actionButton("toggle_install", toggle_label("Install", FALSE),
@@ -129,13 +131,33 @@ open_chat <- function() {
 
     # ── Mode toggles ───────────────────────────────────
 
+    plan_on    <- shiny::reactiveVal(isTRUE(getOption("sparx.plan_mode", FALSE)))
     live_on    <- shiny::reactiveVal(isTRUE(getOption("sparx.live_execution", FALSE)))
     install_on <- shiny::reactiveVal(isTRUE(getOption("sparx.auto_install", FALSE)))
     git_on     <- shiny::reactiveVal(isTRUE(getOption("sparx.allow_git", FALSE)))
 
+    shiny::observe({ options(sparx.plan_mode = plan_on()) })
     shiny::observe({ options(sparx.live_execution = live_on()) })
     shiny::observe({ options(sparx.auto_install = install_on()) })
     shiny::observe({ options(sparx.allow_git = git_on()) })
+
+    shiny::observeEvent(input$toggle_plan, {
+      new_val <- !plan_on()
+      plan_on(new_val)
+      shiny::updateActionButton(session, "toggle_plan",
+                                label = toggle_label("Plan", new_val))
+      if (new_val) {
+        shiny::showNotification(
+          "Plan mode ON \u2014 the agent will propose a plan without writing. Turn off when ready to execute.",
+          type = "message", duration = 5, session = session
+        )
+      } else {
+        shiny::showNotification(
+          "Plan mode OFF \u2014 full tools available again.",
+          type = "message", duration = 3, session = session
+        )
+      }
+    })
 
     shiny::observeEvent(input$toggle_live, {
       new_val <- !live_on()
@@ -285,6 +307,9 @@ open_chat <- function() {
           },
           on_iteration = function(iter) {
             if (iter > 1) current_assistant("")
+          },
+          on_notice = function(msg) {
+            thread_ui(c(thread_ui(), list(render_system_notice(msg))))
           }
         ),
         error = function(e) {
@@ -407,6 +432,41 @@ handle_slash_command <- function(text, session, messages, thread_ui,
       }
       TRUE
     },
+    "/plan" = {
+      new_val <- !isTRUE(getOption("sparx.plan_mode", FALSE))
+      options(sparx.plan_mode = new_val)
+      shiny::updateActionButton(session, "toggle_plan",
+                                label = toggle_label("Plan", new_val))
+      shiny::showNotification(
+        paste0("Plan mode: ", if (new_val) "ON (read-only + plan output)" else "OFF"),
+        type = "message", duration = 3, session = session
+      )
+      TRUE
+    },
+    "/compact" = {
+      # Manually trigger compaction on the current message history
+      msgs <- messages()
+      if (length(msgs) < 4) {
+        shiny::showNotification("Nothing to compact yet.", type = "message",
+                                duration = 2, session = session)
+        return(TRUE)
+      }
+      shiny::showNotification("Compacting conversation...", type = "message",
+                              duration = 3, session = session)
+      compacted <- tryCatch(
+        compact_conversation(msgs, on_notice = function(m) {
+          thread_ui(c(thread_ui(), list(render_system_notice(m))))
+        }),
+        error = function(e) msgs
+      )
+      messages(compacted)
+      # Rebuild thread UI from compacted messages
+      thread_ui(rebuild_thread_ui_from_messages(compacted))
+      .sparx_runtime_state$last_input_tokens <- 0L
+      tryCatch(save_conversation(compacted, .sparx_todo_state$items),
+               error = function(e) NULL)
+      TRUE
+    },
     "/retry" = {
       msgs <- messages()
       # Find last user turn
@@ -427,12 +487,15 @@ handle_slash_command <- function(text, session, messages, thread_ui,
     },
     "/help" = {
       help_text <- paste(
-        "Slash commands:",
-        "  /clear            clear the conversation",
-        "  /model haiku      switch model (haiku/sonnet/opus/4o/mini)",
-        "  /provider openai  switch provider",
-        "  /retry            recall the last user message",
-        "  /help             this help",
+        "## Slash commands",
+        "",
+        "- `/clear` \u2014 clear the conversation",
+        "- `/plan` \u2014 toggle Plan mode (restrict to read-only + produce a plan)",
+        "- `/compact` \u2014 summarize earlier turns to save context tokens",
+        "- `/model haiku` \u2014 switch model (haiku / sonnet / opus / 4o / mini)",
+        "- `/provider openai` \u2014 switch provider (anthropic / openai)",
+        "- `/retry` \u2014 recall the last user message",
+        "- `/help` \u2014 show this help",
         sep = "\n"
       )
       thread_ui(c(thread_ui(),

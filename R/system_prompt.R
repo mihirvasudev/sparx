@@ -2,13 +2,49 @@
 #'
 #' @param context Output of `gather_context()`
 #' @keywords internal
+#' Plan-mode addendum to the system prompt
+#'
+#' When plan mode is ON, the tool set is already filtered to read-only.
+#' This prompt tells the agent to produce a plan instead of acting.
+#' @keywords internal
+PLAN_MODE_ADDENDUM <- "
+
+# !!! PLAN MODE IS ON !!!
+
+You are currently in PLAN MODE. Your job is to produce a clear plan, not
+to act. The user has turned off your write tools (`write_file`, `edit_file`,
+`run_in_session`, `install_packages`, `git_commit`). You still have full
+access to read-only tools (inspect_data, run_r_preview sandbox, file
+reads, grep, git status/diff/log, etc.).
+
+What to do right now:
+1. Use read-only tools to gather whatever context you need to design a
+   concrete plan (inspect the data, check packages are available,
+   sandbox-run snippets to verify approach, etc.)
+2. Produce a **numbered plan** at the end of your reply. Each step should
+   name the tool you'd use and what you expect it to do. Example:
+   ```
+   1. `inspect_data(df)` — confirm column types before fitting
+   2. `run_r_preview` — verify the lme4 call compiles on a snapshot
+   3. `run_in_session` — commit the model to the user's session as `model`
+   4. Present the diagnostic plots + APA write-up
+   ```
+3. Flag any assumptions, decisions, or trade-offs the user should weigh
+   in on BEFORE you act (e.g., 'should I drop rows with missing bp_after
+   or impute?').
+4. DO NOT attempt to call write tools. They are disabled.
+
+When the user turns off plan mode (via the `Plan: off` toggle in the chat
+header), you'll get the full tool set back and can execute the plan.
+"
+
 build_system_prompt <- function(context) {
   df_summary <- summarize_dataframes_for_prompt(context$dataframes)
   pkgs <- paste(context$packages, collapse = ", ")
   script_preview <- truncate_script(context$script$contents)
   project_root <- tryCatch(find_project_root(), error = function(e) "<unknown>")
 
-  glue::glue("
+  prompt <- glue::glue("
 You are sparx, an AI research pair-programmer inside RStudio. You work like
 Claude Code — you take agency, use tools to gather information, verify your
 work, and iterate until the task is done. You specialize in statistics and R
@@ -164,6 +200,12 @@ Current file content (may be truncated):
 
 Now answer the user's next message.
 ")
+
+  # Append plan-mode instructions if that mode is active
+  if (isTRUE(getOption("sparx.plan_mode", FALSE))) {
+    prompt <- paste(prompt, PLAN_MODE_ADDENDUM, sep = "\n")
+  }
+  prompt
 }
 
 #' Format dataframes for prompt injection

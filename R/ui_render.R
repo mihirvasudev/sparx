@@ -93,6 +93,8 @@ cmd_enter_js <- function() {
   // Auto-grow textarea + slash-command menu
   var SLASH_COMMANDS = [
     { cmd: '/clear',    desc: 'Clear the conversation' },
+    { cmd: '/plan',     desc: 'Toggle Plan mode (read-only exploration)' },
+    { cmd: '/compact',  desc: 'Summarize earlier turns to save context tokens' },
     { cmd: '/model',    desc: 'Switch model (e.g. /model haiku)' },
     { cmd: '/provider', desc: 'Switch provider (anthropic | openai)' },
     { cmd: '/retry',    desc: 'Retry the last message' },
@@ -269,6 +271,19 @@ privacy_note_html <- function() {
     'with Anthropic or OpenAI.',
     '</div>'
   )
+}
+
+# ── System notice (subtle inline banner) ───────────────────────────────────
+
+#' Render a subtle system notice (used for compaction messages, etc.)
+#' @keywords internal
+render_system_notice <- function(message) {
+  shiny::HTML(paste0(
+    '<div class="sparx-system-notice">',
+    '<span class="sparx-system-notice-icon">&#x2139;</span>',
+    escape_html(message),
+    '</div>'
+  ))
 }
 
 # ── Message bubbles ────────────────────────────────────────────────────────

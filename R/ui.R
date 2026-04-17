@@ -660,6 +660,23 @@ chat_css <- function() {
     font-size: 11px;
   }
 
+  /* ── System notice (compaction, etc.) ───────────── */
+  .sparx-system-notice {
+    margin: 10px 0;
+    padding: 6px 10px;
+    background: transparent;
+    border-top: 1px dashed var(--sparx-color-border);
+    border-bottom: 1px dashed var(--sparx-color-border);
+    color: var(--sparx-color-text-subtle);
+    font-size: 11px;
+    text-align: center;
+    font-style: italic;
+  }
+  .sparx-system-notice-icon {
+    margin-right: 6px;
+    opacity: 0.6;
+  }
+
   /* ── Streaming text caret ────────────────────────── */
   .sparx-streaming-cursor {
     display: inline-block;

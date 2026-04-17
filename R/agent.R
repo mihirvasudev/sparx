@@ -17,6 +17,7 @@ MAX_AGENT_ITERATIONS <- 12L
 .sparx_runtime_state$abort_requested <- FALSE
 .sparx_runtime_state$input_tokens <- 0L
 .sparx_runtime_state$output_tokens <- 0L
+.sparx_runtime_state$last_input_tokens <- 0L
 
 #' Request an abort of the currently-running agent turn
 #' @keywords internal
@@ -41,6 +42,7 @@ sparx_abort_requested <- function() {
 sparx_reset_tokens <- function() {
   .sparx_runtime_state$input_tokens <- 0L
   .sparx_runtime_state$output_tokens <- 0L
+  .sparx_runtime_state$last_input_tokens <- 0L
 }
 
 #' Convert a tool result string into Anthropic-format content payload
@@ -131,10 +133,20 @@ run_agentic_turn <- function(messages,
                              on_text_chunk = function(chunk) invisible(),
                              on_tool_start = function(name, id) invisible(),
                              on_tool_result = function(name, id, result) invisible(),
-                             on_iteration = function(iter) invisible()) {
+                             on_iteration = function(iter) invisible(),
+                             on_notice = function(msg) invisible()) {
+  # Compact if the previous turn's input tokens crossed the threshold
+  if (should_compact()) {
+    messages <- compact_conversation(messages, on_notice = on_notice)
+    .sparx_runtime_state$last_input_tokens <- 0L
+  }
+
   context <- gather_context()
   system_prompt <- build_system_prompt(context)
-  tools <- tool_definitions()
+
+  # In plan mode, the agent gets a restricted read-only tool set
+  plan_mode_on <- isTRUE(getOption("sparx.plan_mode", FALSE))
+  tools <- tool_definitions_filtered(if (plan_mode_on) "plan" else "normal")
 
   final_text_parts <- character()
 
@@ -165,6 +177,8 @@ run_agentic_turn <- function(messages,
       if (!is.na(response$usage$input_tokens %||% NA)) {
         .sparx_runtime_state$input_tokens <-
           .sparx_runtime_state$input_tokens + response$usage$input_tokens
+        # Track just the last call's input tokens for compaction decisions
+        .sparx_runtime_state$last_input_tokens <- response$usage$input_tokens
       }
       if (!is.na(response$usage$output_tokens %||% NA)) {
         .sparx_runtime_state$output_tokens <-
