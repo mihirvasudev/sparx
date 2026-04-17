@@ -2,7 +2,7 @@
 
 > **Claude Code-style AI pair-programmer for RStudio.** Describe what you want in English. sparx reads your data, writes the code, runs it, fixes errors, and hands you a verified result.
 
-[![R package](https://img.shields.io/badge/R%20package-0.7.0-blue.svg)](https://github.com/mihirvasudev/sparx)
+[![R package](https://img.shields.io/badge/R%20package-0.8.0-blue.svg)](https://github.com/mihirvasudev/sparx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 ## What it is
@@ -30,16 +30,24 @@ remotes::install_github("mihirvasudev/sparx")
 
 ## Setup
 
-1. Get an Anthropic API key: [console.anthropic.com](https://console.anthropic.com)
+1. Get an API key from your preferred provider:
+   - **Anthropic (Claude)** — [console.anthropic.com](https://console.anthropic.com)
+   - **OpenAI (GPT)** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
 2. Store it securely (one-time):
    ```r
+   # Anthropic is the default:
    sparx::set_api_key()
-   # Prompts for your key; saved in your system keyring
+
+   # Or, for OpenAI:
+   sparx::set_api_key(provider = "openai")
+
+   # You can configure both — switch between them from the chat panel dropdown
    ```
 
 3. Open RStudio → **Addins** → **Open sparx Chat**
    - Or bind `Cmd+Shift+A` via **Tools → Modify Keyboard Shortcuts**
+   - The chat header has a **Provider** dropdown to switch between Anthropic and OpenAI mid-session
 
 4. Optional: grant advanced capabilities via the toggles in the chat header
    - **Live exec** — sparx can run code in your real R session (destructive patterns still blocked)
@@ -127,14 +135,26 @@ Clear a conversation with the "Clear" button in the chat header.
 
 ## Typical costs
 
-| Model | ~Cost per message |
-|---|---|
-| claude-sonnet-4-5 (default) | $0.005 – $0.02 |
-| claude-haiku-4-5 | $0.001 – $0.004 |
+| Provider | Model | ~Cost per message |
+|---|---|---|
+| Anthropic | claude-sonnet-4-5 (default) | $0.005 – $0.02 |
+| Anthropic | claude-haiku-4-5 | $0.001 – $0.004 |
+| OpenAI | gpt-4o (default) | $0.005 – $0.02 |
+| OpenAI | gpt-4o-mini | $0.001 – $0.004 |
 
-Switch model:
+Switch model for the current provider:
 ```r
 options(sparx.model = "claude-haiku-4-5-20251001")
+# Or per-provider:
+options(sparx.anthropic_model = "claude-haiku-4-5-20251001")
+options(sparx.openai_model = "gpt-4o-mini")
+```
+
+Switch provider:
+```r
+sparx::set_provider("openai")     # or
+sparx::set_provider("anthropic")
+# Or via the dropdown in the chat panel
 ```
 
 A 30-minute research session with 20–30 tool calls: typically $0.20–$0.80.

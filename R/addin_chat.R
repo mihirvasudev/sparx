@@ -11,13 +11,19 @@ open_chat <- function() {
     stop("sparx requires `shiny` and `miniUI`. Install them with install.packages(c('shiny', 'miniUI')).")
   }
 
-  if (is.null(get_api_key()) || nchar(get_api_key()) == 0) {
+  # Need at least one provider configured
+  configured <- configured_providers()
+  if (length(configured) == 0) {
     if (interactive()) {
-      message("sparx: no API key found. Let's set one up.")
+      message("sparx: no API key configured. Let's set one up for ",
+              provider_info()$name, ".")
       set_api_key()
     } else {
       stop("Run sparx::set_api_key() first.")
     }
+  } else if (!(get_provider() %in% configured)) {
+    # Switch to the first configured provider
+    set_provider(configured[1])
   }
 
   ui <- miniUI::miniPage(
@@ -27,10 +33,12 @@ open_chat <- function() {
       right = miniUI::miniTitleBarButton("close", "Close", primary = FALSE),
       left = miniUI::miniTitleBarButton("clear", "Clear", primary = FALSE)
     ),
-    # Toggle + status bar
+    # Provider + toggle bar
     shiny::div(
       class = "sparx-controls",
-      shiny::tags$span(class = "sparx-mode-label", "Modes:"),
+      shiny::tags$span(class = "sparx-mode-label", "Provider:"),
+      provider_select_ui("provider_select"),
+      shiny::tags$span(class = "sparx-separator", "|"),
       shiny::actionButton("toggle_live", toggle_label("Live exec", FALSE),
                           class = "sparx-toggle"),
       shiny::actionButton("toggle_install", toggle_label("Auto-install", FALSE),
@@ -74,6 +82,37 @@ open_chat <- function() {
 
   server <- function(input, output, session) {
     # ── Reactive state ────────────────────────────────────
+
+    # ── Provider selection ─────────────────────────────────
+
+    shiny::observeEvent(input$provider_select, {
+      chosen <- input$provider_select
+      if (is.null(chosen) || chosen == get_provider()) return()
+
+      # If the chosen provider isn't configured, prompt for a key
+      key <- tryCatch(get_api_key(chosen), error = function(e) NULL)
+      if (is.null(key) || !nzchar(key)) {
+        shiny::showNotification(
+          paste0("No API key for ", PROVIDERS[[chosen]]$name,
+                 ". Set one with sparx::set_api_key(provider = \"", chosen, "\")"),
+          type = "warning",
+          duration = 8,
+          session = session
+        )
+        # Revert the dropdown
+        shiny::updateSelectInput(session, "provider_select", selected = get_provider())
+        return()
+      }
+
+      set_provider(chosen)
+      shiny::showNotification(
+        paste0("Now using ", PROVIDERS[[chosen]]$name,
+               " (model: ", get_model(), ")"),
+        type = "message",
+        duration = 4,
+        session = session
+      )
+    }, ignoreInit = TRUE)
 
     # ── Mode toggle state ──────────────────────────────────
 
@@ -296,6 +335,32 @@ open_chat <- function() {
 #' @keywords internal
 toggle_label <- function(name, on) {
   paste0(name, ": ", if (isTRUE(on)) "ON" else "off")
+}
+
+#' Provider dropdown UI
+#'
+#' Lists all configured providers; the user can switch mid-session.
+#' Unconfigured providers appear greyed with "(set key)" and clicking them
+#' opens the key prompt.
+#' @keywords internal
+provider_select_ui <- function(input_id) {
+  configured <- configured_providers()
+  all_names <- names(PROVIDERS)
+  current <- get_provider()
+
+  choices <- setNames(all_names, vapply(all_names, function(p) {
+    label <- PROVIDERS[[p]]$name
+    if (!(p %in% configured)) label <- paste0(label, " (no key)")
+    label
+  }, character(1)))
+
+  shiny::selectInput(
+    inputId = input_id,
+    label = NULL,
+    choices = choices,
+    selected = current,
+    width = "180px"
+  )
 }
 
 #' Show a one-time warning when the user enables a powerful toggle

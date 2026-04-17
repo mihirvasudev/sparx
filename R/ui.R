@@ -158,6 +158,23 @@ chat_css <- function() {
     font-family: 'SF Mono', Monaco, monospace;
     font-size: 10px;
   }
+  .sparx-separator {
+    color: #d1d5db;
+    margin: 0 2px;
+  }
+  /* Compact the provider dropdown to match toggle height */
+  .sparx-controls .form-group {
+    margin-bottom: 0 !important;
+    display: inline-block;
+  }
+  .sparx-controls select.form-control {
+    height: 22px !important;
+    padding: 0 20px 0 6px !important;
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+    background-color: white !important;
+    border-color: #d1d5db !important;
+  }
   .sparx-send-group {
     display: flex;
     gap: 6px;

@@ -1,13 +1,15 @@
 Package: sparx
 Type: Package
 Title: AI Pair-Programmer for RStudio
-Version: 0.1.0
+Version: 0.8.0
 Authors@R:
     person("Mihir", "Curovana", email = "m@curovana.com", role = c("aut", "cre"))
 Description: An RStudio addin that adds an AI pair-programmer to RStudio.
     Describe what you want in English; sparx reads your script, session,
     and data, then generates R code, runs it, and iterates on errors.
-    Specialized for statistical workflows in medical and biomedical research.
+    Supports both Anthropic (Claude) and OpenAI (GPT) models — switch
+    providers from the chat panel, keys stored per-provider in the system
+    keyring. Specialized for statistical workflows in medical research.
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.2

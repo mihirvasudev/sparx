@@ -151,7 +151,7 @@ run_agentic_turn <- function(messages,
     }
     on_iteration(iter)
 
-    response <- call_claude_streaming(
+    response <- call_provider_streaming(
       system_prompt = system_prompt,
       messages = messages,
       tools = tools,
