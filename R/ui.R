@@ -123,6 +123,52 @@ chat_css <- function() {
     font-size: 11px;
     color: #9ca3af;
   }
+
+  /* Tool execution badges */
+  .sparx-tool {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 8px 0;
+    border-left: 3px solid #8b5cf6;
+    background: #faf5ff;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #5b21b6;
+  }
+  .sparx-tool-icon {
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .sparx-tool-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .sparx-tool-name {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .sparx-tool-result {
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: white;
+    border: 1px solid #e9d5ff;
+    border-radius: 3px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11px;
+    color: #374151;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .sparx-tool-running .sparx-tool-name::after {
+    content: ' ...';
+    animation: sparx-blink 0.8s step-end infinite;
+  }
   "
 }
 
@@ -258,6 +304,55 @@ render_markdown_inline <- function(text) {
   # Newlines
   s <- gsub("\n", "<br>", s)
   s
+}
+
+#' Render an active (running) tool badge
+#' @keywords internal
+render_tool_badge <- function(tool_name, running = TRUE) {
+  cls <- if (running) "sparx-tool sparx-tool-running" else "sparx-tool"
+  shiny::div(
+    class = cls,
+    shiny::span(class = "sparx-tool-icon", ">_"),
+    shiny::div(
+      class = "sparx-tool-body",
+      shiny::div(class = "sparx-tool-name", pretty_tool_name(tool_name))
+    )
+  )
+}
+
+#' Render a completed tool call with its result (collapsible)
+#' @keywords internal
+render_tool_result <- function(tool_name, result) {
+  result_text <- if (is.null(result)) "" else as.character(result)
+  # Truncate for display
+  display_text <- if (nchar(result_text) > 1200) {
+    paste0(substr(result_text, 1, 1200), "\n\n... [truncated in UI — Claude saw full output]")
+  } else {
+    result_text
+  }
+
+  shiny::div(
+    class = "sparx-tool",
+    shiny::span(class = "sparx-tool-icon", "✓"),
+    shiny::div(
+      class = "sparx-tool-body",
+      shiny::div(class = "sparx-tool-name", pretty_tool_name(tool_name)),
+      shiny::div(class = "sparx-tool-result", display_text)
+    )
+  )
+}
+
+#' Human-friendly name for a tool
+#' @keywords internal
+pretty_tool_name <- function(name) {
+  labels <- c(
+    inspect_data = "Inspecting data",
+    run_r_preview = "Running R code (preview)",
+    check_package = "Checking package",
+    read_editor = "Reading editor"
+  )
+  lbl <- labels[name]
+  if (is.na(lbl)) name else unname(lbl)
 }
 
 #' Escape HTML for safe rendering
