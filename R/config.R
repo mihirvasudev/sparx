@@ -96,6 +96,11 @@ set_api_key <- function(api_key = NULL, provider = NULL) {
 
 #' Get the stored API key for a provider
 #'
+#' Priority: env var (always fast) > system keyring (may prompt). In
+#' non-interactive sessions we skip the keyring entirely because some
+#' backends (notably macOS Keychain) will block waiting for a GUI prompt
+#' that cannot be displayed, hanging the whole process.
+#'
 #' @param provider Provider (default: current)
 #' @return API key string, or NULL if not set
 #' @keywords internal
@@ -103,13 +108,17 @@ get_api_key <- function(provider = NULL) {
   if (is.null(provider)) provider <- get_provider()
   info <- provider_info(provider)
 
-  tryCatch({
-    keyring::key_get(SPARX_KEYRING_SERVICE, info$keyring_user)
-  }, error = function(e) {
-    # Fallback: env var
-    key <- Sys.getenv(info$env_var, unset = "")
-    if (nchar(key) > 0) key else NULL
-  })
+  # 1. Env var wins — always safe, always fast, no prompts
+  env_key <- Sys.getenv(info$env_var, unset = "")
+  if (nchar(env_key) > 0) return(env_key)
+
+  # 2. Keyring only in interactive sessions (it may prompt for unlock)
+  if (!interactive()) return(NULL)
+
+  tryCatch(
+    keyring::key_get(SPARX_KEYRING_SERVICE, info$keyring_user),
+    error = function(e) NULL
+  )
 }
 
 #' Get the currently-configured model name
