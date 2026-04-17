@@ -245,6 +245,77 @@ tool_definitions <- function() {
       )
     ),
     list(
+      name = "fetch_url",
+      description = paste0(
+        "Fetch a URL and return its text content (HTML tags stripped). Use ",
+        "to read R package documentation, blog posts, Stack Overflow threads, ",
+        "or API references the user mentions. Returns up to 8000 characters ",
+        "of cleaned text. Refuses non-https URLs and binary content types."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          url = list(
+            type = "string",
+            description = "HTTPS URL to fetch"
+          )
+        ),
+        required = list("url")
+      )
+    ),
+    list(
+      name = "git_status",
+      description = paste0(
+        "Show the git status of the project (staged, modified, untracked ",
+        "files). Use before suggesting commits or to understand what the ",
+        "user is working on."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(),
+        required = list()
+      )
+    ),
+    list(
+      name = "git_diff",
+      description = paste0(
+        "Show the git diff for the project. Pass `staged = TRUE` to see ",
+        "staged changes instead of working-tree changes. Optionally limit ",
+        "to a specific file path."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          path = list(
+            type = "string",
+            description = "Optional file path to limit the diff to"
+          ),
+          staged = list(
+            type = "boolean",
+            description = "Show staged changes (default: FALSE)"
+          )
+        ),
+        required = list()
+      )
+    ),
+    list(
+      name = "git_log",
+      description = paste0(
+        "Show the recent git log (commit SHAs + messages). Use to understand ",
+        "the history of the project or to see what's been done recently."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          n = list(
+            type = "integer",
+            description = "Number of commits to show (default 10, max 50)"
+          )
+        ),
+        required = list()
+      )
+    ),
+    list(
       name = "run_in_session",
       description = paste0(
         "Execute R code in the USER'S LIVE R session (.GlobalEnv). Effects ",
@@ -378,6 +449,10 @@ execute_tool <- function(name, input) {
       "todo_write" = tool_todo_write(input$todos),
       "run_in_session" = tool_run_in_session(input$code),
       "get_session_state" = tool_get_session_state(),
+      "fetch_url" = tool_fetch_url(input$url),
+      "git_status" = tool_git_status(),
+      "git_diff" = tool_git_diff(input$path, input$staged %||% FALSE),
+      "git_log" = tool_git_log(input$n %||% 10),
       paste0("ERROR: unknown tool `", name, "`")
     )
   }, error = function(e) {
@@ -1132,6 +1207,171 @@ tool_run_in_session <- function(code) {
     parts <- "(code ran successfully with no printed output)"
   }
   paste0(paste(parts, collapse = "\n\n"), "\n\n(ran in ", duration, "s; session state updated)")
+}
+
+# ── Web fetch ──────────────────────────────────────────────────────────────
+
+#' Fetch a URL and return cleaned text content
+#' @keywords internal
+tool_fetch_url <- function(url) {
+  if (is.null(url) || !nzchar(url)) return("ERROR: url is required.")
+
+  # Security: require https
+  if (!grepl("^https://", url)) {
+    return("ERROR: only HTTPS URLs are allowed.")
+  }
+
+  resp <- tryCatch(
+    httr2::req_perform(
+      httr2::request(url) |>
+        httr2::req_timeout(20) |>
+        httr2::req_user_agent("sparx-rstudio-addin/0.6")
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(resp)) {
+    return(paste0("ERROR: could not fetch ", url))
+  }
+
+  status <- httr2::resp_status(resp)
+  if (status >= 400) {
+    return(paste0("ERROR: HTTP ", status, " fetching ", url))
+  }
+
+  content_type <- tolower(httr2::resp_content_type(resp) %||% "")
+  if (!grepl("text|html|json|xml", content_type)) {
+    return(paste0("ERROR: refusing non-text content type: ", content_type))
+  }
+
+  body <- tryCatch(
+    httr2::resp_body_string(resp),
+    error = function(e) NULL
+  )
+  if (is.null(body)) {
+    return(paste0("ERROR: could not decode body for ", url))
+  }
+
+  # Strip HTML tags for readability (very simple; not a full parser)
+  if (grepl("html", content_type)) {
+    # Remove <script> and <style> blocks entirely
+    body <- gsub("<script[^>]*>.*?</script>", "", body,
+                 ignore.case = TRUE, perl = TRUE)
+    body <- gsub("<style[^>]*>.*?</style>", "", body,
+                 ignore.case = TRUE, perl = TRUE)
+    # Remove all tags
+    body <- gsub("<[^>]+>", "", body, perl = TRUE)
+    # Collapse whitespace
+    body <- gsub("[ \t]+", " ", body)
+    body <- gsub("\n[\n\\s]*\n", "\n\n", body, perl = TRUE)
+    body <- trimws(body)
+  }
+
+  # Truncate to a reasonable size
+  max_chars <- 8000L
+  if (nchar(body) > max_chars) {
+    body <- paste0(substr(body, 1, max_chars), "\n\n... [truncated]")
+  }
+
+  paste0("URL: ", url, "\nContent-Type: ", content_type, "\n\n", body)
+}
+
+# ── Git tools ──────────────────────────────────────────────────────────────
+
+#' Check that git is available and we're in a repo
+#' @keywords internal
+ensure_git <- function() {
+  git <- Sys.which("git")
+  if (nchar(git) == 0) {
+    return("ERROR: `git` is not on PATH. Install it to use git tools.")
+  }
+  root <- find_project_root()
+  if (!dir.exists(file.path(root, ".git"))) {
+    # Walk up looking for .git (project may be inside a larger repo)
+    cur <- root
+    while (cur != dirname(cur)) {
+      if (dir.exists(file.path(cur, ".git"))) break
+      cur <- dirname(cur)
+    }
+    if (!dir.exists(file.path(cur, ".git"))) {
+      return("ERROR: not inside a git repository.")
+    }
+    root <- cur
+  }
+  list(git = git, root = root)
+}
+
+#' Helper: run git and return trimmed stdout (or ERROR string)
+#' @keywords internal
+run_git <- function(args, root, git) {
+  out <- tryCatch(
+    system2(git, args = args, stdout = TRUE, stderr = TRUE),
+    error = function(e) e$message
+  )
+  status <- attr(out, "status")
+  if (!is.null(status) && status != 0) {
+    return(paste0("ERROR: git ", paste(args, collapse = " "), " failed:\n",
+                  paste(out, collapse = "\n")))
+  }
+  paste(out, collapse = "\n")
+}
+
+#' Git status
+#' @keywords internal
+tool_git_status <- function() {
+  info <- ensure_git()
+  if (is.character(info)) return(info)
+
+  # cd into the repo via system2's wd
+  old_wd <- setwd(info$root)
+  on.exit(setwd(old_wd), add = TRUE)
+
+  out <- run_git(c("status", "--short", "--branch"), info$root, info$git)
+  if (nchar(out) == 0) return("Working tree clean.")
+  out
+}
+
+#' Git diff
+#' @keywords internal
+tool_git_diff <- function(path = NULL, staged = FALSE) {
+  info <- ensure_git()
+  if (is.character(info)) return(info)
+
+  old_wd <- setwd(info$root)
+  on.exit(setwd(old_wd), add = TRUE)
+
+  args <- c("diff")
+  if (isTRUE(staged)) args <- c(args, "--staged")
+  if (!is.null(path) && nzchar(path)) args <- c(args, "--", path)
+
+  out <- run_git(args, info$root, info$git)
+
+  # Truncate huge diffs
+  if (nchar(out) > 6000) {
+    out <- paste0(substr(out, 1, 6000), "\n... [diff truncated]")
+  }
+  if (nchar(out) == 0) {
+    return(if (staged) "No staged changes." else "No working-tree changes.")
+  }
+  out
+}
+
+#' Git log (last N commits)
+#' @keywords internal
+tool_git_log <- function(n = 10) {
+  info <- ensure_git()
+  if (is.character(info)) return(info)
+
+  old_wd <- setwd(info$root)
+  on.exit(setwd(old_wd), add = TRUE)
+
+  n <- min(max(1L, as.integer(n)), 50L)
+  out <- run_git(
+    c("log", paste0("-", n), "--oneline", "--decorate", "--no-color"),
+    info$root, info$git
+  )
+  if (nchar(out) == 0) return("No commits yet.")
+  out
 }
 
 #' Summarize the user's current .GlobalEnv

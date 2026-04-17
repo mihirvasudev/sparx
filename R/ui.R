@@ -537,7 +537,11 @@ pretty_tool_name <- function(name) {
     install_packages = "Installing packages",
     todo_write = "Updating task list",
     run_in_session = "Running in live session",
-    get_session_state = "Checking session state"
+    get_session_state = "Checking session state",
+    fetch_url = "Fetching web page",
+    git_status = "Checking git status",
+    git_diff = "Reading git diff",
+    git_log = "Reading git log"
   )
   lbl <- labels[name]
   if (is.na(lbl)) name else unname(lbl)

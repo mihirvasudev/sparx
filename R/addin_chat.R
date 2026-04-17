@@ -59,8 +59,17 @@ open_chat <- function() {
   server <- function(input, output, session) {
     # ── Reactive state ────────────────────────────────────
 
-    messages <- shiny::reactiveVal(list())  # Anthropic-format conversation history
-    thread_ui <- shiny::reactiveVal(list())  # rendered UI items (user, assistant, tool)
+    # Try to restore saved conversation for this project
+    saved <- tryCatch(load_conversation(), error = function(e) NULL)
+
+    initial_messages <- if (!is.null(saved)) saved$messages else list()
+    initial_todos <- if (!is.null(saved)) saved$todos else list()
+    .sparx_todo_state$items <- initial_todos
+
+    messages <- shiny::reactiveVal(initial_messages)  # Anthropic-format conversation history
+    thread_ui <- shiny::reactiveVal(
+      rebuild_thread_ui_from_messages(initial_messages)
+    )  # rendered UI items
     is_streaming <- shiny::reactiveVal(FALSE)
     current_assistant <- shiny::reactiveVal("")  # streaming text buffer
     active_tool <- shiny::reactiveVal(NULL)  # {name, id} of currently-running tool
@@ -174,6 +183,12 @@ open_chat <- function() {
       messages(result$messages)
       active_tool(NULL)
       is_streaming(FALSE)
+
+      # Persist to disk for next session
+      tryCatch(
+        save_conversation(result$messages, .sparx_todo_state$items),
+        error = function(e) NULL
+      )
     })
 
     # ── Code action handlers (Insert / Run from code blocks) ─
@@ -195,6 +210,8 @@ open_chat <- function() {
       thread_ui(list())
       current_assistant("")
       active_tool(NULL)
+      .sparx_todo_state$items <- list()
+      tryCatch(clear_saved_conversation(), error = function(e) NULL)
     })
 
     shiny::observeEvent(input$close, shiny::stopApp())
@@ -207,6 +224,47 @@ open_chat <- function() {
 }
 
 # ── Editor integration helpers ─────────────────────────────
+
+#' Rebuild the rendered thread UI from a saved messages array
+#'
+#' Walks the Anthropic-format messages list and produces the corresponding
+#' list of UI items (user bubble, assistant bubble, tool badges).
+#' @keywords internal
+rebuild_thread_ui_from_messages <- function(messages) {
+  if (length(messages) == 0) return(list())
+
+  items <- list()
+  for (msg in messages) {
+    role <- msg$role
+    content <- msg$content
+
+    if (role == "user") {
+      # User messages might be a plain string (first turn) or a list of
+      # tool_result blocks (continuation turns — don't render these)
+      if (is.character(content) && length(content) == 1) {
+        items[[length(items) + 1]] <- render_user_bubble(content)
+      }
+      # Tool results are rendered when the assistant turn's tool_use is seen
+    } else if (role == "assistant") {
+      # Assistant content is a list of blocks (text and/or tool_use)
+      if (is.list(content)) {
+        for (block in content) {
+          type <- block$type %||% "text"
+          if (type == "text" && !is.null(block$text)) {
+            items[[length(items) + 1]] <- render_assistant_bubble(block$text, streaming = FALSE)
+          } else if (type == "tool_use") {
+            # On replay, we don't have the tool_result text handy (they're in
+            # the next user message). Just render a minimal completed tool badge.
+            items[[length(items) + 1]] <- render_tool_badge(block$name %||% "tool", running = FALSE)
+          }
+        }
+      } else if (is.character(content)) {
+        items[[length(items) + 1]] <- render_assistant_bubble(content, streaming = FALSE)
+      }
+    }
+  }
+  items
+}
 
 #' Insert code at current cursor position
 #' @keywords internal

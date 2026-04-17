@@ -77,9 +77,26 @@ call_claude_streaming <- function(system_prompt,
     ) |>
     httr2::req_body_json(body) |>
     httr2::req_timeout(120) |>
-    httr2::req_retry(max_tries = 2, is_transient = function(resp) {
-      httr2::resp_status(resp) %in% c(429, 500, 502, 503, 504)
-    })
+    httr2::req_retry(
+      max_tries = 4,
+      is_transient = function(resp) {
+        httr2::resp_status(resp) %in% c(429, 500, 502, 503, 504)
+      },
+      # Use the Retry-After header if provided (Anthropic sets it on 429)
+      # else exponential backoff: 5s, 15s, 30s, capped at 60s
+      backoff = function(attempt) min(60, 5 * (3 ^ (attempt - 1))),
+      after = function(resp) {
+        retry_after <- tryCatch(
+          httr2::resp_header(resp, "Retry-After"),
+          error = function(e) NULL
+        )
+        if (!is.null(retry_after) && nzchar(retry_after)) {
+          as.numeric(retry_after)
+        } else {
+          NULL  # fall through to backoff
+        }
+      }
+    )
 
   process_event <- function(payload_str) {
     if (payload_str == "" || payload_str == "[DONE]") return(invisible())

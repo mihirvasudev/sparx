@@ -84,6 +84,16 @@ The user is often a researcher with limited R experience.
   will be told to ask them to install manually. Only use after check_package
   confirms a needed package is missing.
 
+## Web + git
+- `fetch_url(url)`: fetch an HTTPS URL and return cleaned text. Use for R
+  package docs, Stack Overflow threads, vignettes, or API references the
+  user mentions. Only HTTPS URLs allowed.
+- `git_status()`: short git status + branch of the project.
+- `git_diff(path, staged)`: working-tree diff (or staged diff if staged=TRUE).
+  Optionally scoped to a single path.
+- `git_log(n)`: last N commits (oneline format). Useful to understand what's
+  been done recently or to reference a prior commit.
+
 ## Task tracking (for multi-step work)
 - `todo_write(todos)`: update a visible checklist the user can see at
   the top of the chat. Each todo has a status: pending, in_progress,
