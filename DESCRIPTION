@@ -1,7 +1,7 @@
 Package: sparx
 Type: Package
 Title: AI Pair-Programmer for RStudio
-Version: 0.8.0
+Version: 0.8.1
 Authors@R:
     person("Mihir", "Curovana", email = "m@curovana.com", role = c("aut", "cre"))
 Description: An RStudio addin that adds an AI pair-programmer to RStudio.
