@@ -7,7 +7,7 @@
 #' @section Getting started:
 #' \preformatted{
 #' # 1. Install
-#' remotes::install_github("sparsilex/sparx")
+#' remotes::install_github("mihirvasudev/sparx")
 #'
 #' # 2. Set your Anthropic API key (one time)
 #' sparx::set_api_key()

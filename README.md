@@ -2,7 +2,7 @@
 
 > **Claude Code-style AI pair-programmer for RStudio.** Describe what you want in English. sparx reads your data, writes the code, runs it, fixes errors, and hands you a verified result.
 
-[![R package](https://img.shields.io/badge/R%20package-0.7.0-blue.svg)](https://github.com/sparsilex/sparx)
+[![R package](https://img.shields.io/badge/R%20package-0.7.0-blue.svg)](https://github.com/mihirvasudev/sparx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 ## What it is
@@ -25,7 +25,7 @@ Specialized for **statistical workflows in medical and biomedical research**.
 
 ```r
 # install.packages("remotes")
-remotes::install_github("sparsilex/sparx")
+remotes::install_github("mihirvasudev/sparx")
 ```
 
 ## Setup

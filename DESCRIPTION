@@ -28,5 +28,5 @@ Suggests:
     rmarkdown
 Config/testthat/edition: 3
 VignetteBuilder: knitr
-URL: https://github.com/sparsilex/sparx
-BugReports: https://github.com/sparsilex/sparx/issues
+URL: https://github.com/mihirvasudev/sparx
+BugReports: https://github.com/mihirvasudev/sparx/issues

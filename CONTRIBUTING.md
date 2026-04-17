@@ -2,7 +2,7 @@
 
 ## Current location
 
-For velocity, `sparx` lives as a subdirectory of the [SparsileX monorepo](../) during early development. The plan is to split it into its own standalone repo at `github.com/sparsilex/sparx` once the MVP stabilizes.
+For velocity, `sparx` lives as a subdirectory of the [SparsileX monorepo](../) during early development. The plan is to split it into its own standalone repo at `github.com/mihirvasudev/sparx` once the MVP stabilizes.
 
 ## Why monorepo for now
 
@@ -27,7 +27,7 @@ Use `git subtree split` to create a new branch containing only the `rstudio-addi
 git subtree split --prefix=rstudio-addin -b sparx-only
 
 # Push to a new empty GitHub repo
-git remote add sparx-repo git@github.com:sparsilex/sparx.git
+git remote add sparx-repo git@github.com:mihirvasudev/sparx.git
 git push sparx-repo sparx-only:main
 
 # The new repo has only rstudio-addin/ files at its root, with history preserved
@@ -40,7 +40,7 @@ For full history rewriting (if subtree split has issues with renames):
 git clone https://github.com/sparsilex/sparsilex.git sparx-extract
 cd sparx-extract
 git filter-repo --subdirectory-filter rstudio-addin
-git remote add origin git@github.com:sparsilex/sparx.git
+git remote add origin git@github.com:mihirvasudev/sparx.git
 git push -u origin main
 ```
 
