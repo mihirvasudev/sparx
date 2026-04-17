@@ -299,6 +299,26 @@ tool_definitions <- function() {
       )
     ),
     list(
+      name = "git_commit",
+      description = paste0(
+        "Create a git commit. You must have already staged changes (the user ",
+        "does this, or you ask them to). Use short, imperative commit messages ",
+        "('Add X', 'Fix Y'). Gated: only works when options(sparx.allow_git = ",
+        "TRUE) is set. Otherwise returns an instruction for the user to commit ",
+        "manually."
+      ),
+      input_schema = list(
+        type = "object",
+        properties = list(
+          message = list(
+            type = "string",
+            description = "Commit message (imperative mood, short)"
+          )
+        ),
+        required = list("message")
+      )
+    ),
+    list(
       name = "git_log",
       description = paste0(
         "Show the recent git log (commit SHAs + messages). Use to understand ",
@@ -453,6 +473,7 @@ execute_tool <- function(name, input) {
       "git_status" = tool_git_status(),
       "git_diff" = tool_git_diff(input$path, input$staged %||% FALSE),
       "git_log" = tool_git_log(input$n %||% 10),
+      "git_commit" = tool_git_commit(input$message),
       paste0("ERROR: unknown tool `", name, "`")
     )
   }, error = function(e) {
@@ -1371,6 +1392,41 @@ tool_git_log <- function(n = 10) {
     info$root, info$git
   )
   if (nchar(out) == 0) return("No commits yet.")
+  out
+}
+
+#' Create a git commit (gated by sparx.allow_git)
+#' @keywords internal
+tool_git_commit <- function(message) {
+  if (is.null(message) || !nzchar(message)) {
+    return("ERROR: commit message is required.")
+  }
+
+  if (!isTRUE(getOption("sparx.allow_git", FALSE))) {
+    return(paste0(
+      "Git commit refused: the user has not enabled sparx git writes. ",
+      "To proceed, the user can click the 'Git' toggle in the sparx panel, ",
+      "or set options(sparx.allow_git = TRUE). Otherwise they can commit ",
+      "manually with: git commit -m \"", gsub("\"", "'", message), "\""
+    ))
+  }
+
+  info <- ensure_git()
+  if (is.character(info)) return(info)
+
+  old_wd <- setwd(info$root)
+  on.exit(setwd(old_wd), add = TRUE)
+
+  # Check there's actually something staged to commit
+  status_out <- run_git(c("diff", "--cached", "--name-only"), info$root, info$git)
+  if (startsWith(status_out, "ERROR") || !nzchar(trimws(status_out))) {
+    return(paste0(
+      "Nothing is staged to commit. Use `git add <paths>` to stage changes ",
+      "first, or ask the user to stage what they want committed."
+    ))
+  }
+
+  out <- run_git(c("commit", "-m", message), info$root, info$git)
   out
 }
 

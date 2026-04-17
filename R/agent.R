@@ -12,6 +12,37 @@
 
 MAX_AGENT_ITERATIONS <- 12L
 
+# Package-level state for abort signaling + cumulative token usage
+.sparx_runtime_state <- new.env(parent = emptyenv())
+.sparx_runtime_state$abort_requested <- FALSE
+.sparx_runtime_state$input_tokens <- 0L
+.sparx_runtime_state$output_tokens <- 0L
+
+#' Request an abort of the currently-running agent turn
+#' @keywords internal
+sparx_request_abort <- function() {
+  .sparx_runtime_state$abort_requested <- TRUE
+}
+
+#' Clear the abort flag
+#' @keywords internal
+sparx_clear_abort <- function() {
+  .sparx_runtime_state$abort_requested <- FALSE
+}
+
+#' Check whether abort has been requested
+#' @keywords internal
+sparx_abort_requested <- function() {
+  isTRUE(.sparx_runtime_state$abort_requested)
+}
+
+#' Reset cumulative token counters
+#' @keywords internal
+sparx_reset_tokens <- function() {
+  .sparx_runtime_state$input_tokens <- 0L
+  .sparx_runtime_state$output_tokens <- 0L
+}
+
 #' Convert a tool result string into Anthropic-format content payload
 #'
 #' Most tool results are plain text, but some (inspect_plot) embed a special
@@ -107,7 +138,17 @@ run_agentic_turn <- function(messages,
 
   final_text_parts <- character()
 
+  sparx_clear_abort()
+
   for (iter in seq_len(MAX_AGENT_ITERATIONS)) {
+    if (sparx_abort_requested()) {
+      return(list(
+        messages = messages,
+        final_text = "(stopped by user)",
+        iterations = iter - 1,
+        aborted = TRUE
+      ))
+    }
     on_iteration(iter)
 
     response <- call_claude_streaming(
@@ -118,6 +159,18 @@ run_agentic_turn <- function(messages,
       on_tool_start = on_tool_start,
       max_tokens = 2048
     )
+
+    # Accumulate token usage
+    if (!is.null(response$usage)) {
+      if (!is.na(response$usage$input_tokens %||% NA)) {
+        .sparx_runtime_state$input_tokens <-
+          .sparx_runtime_state$input_tokens + response$usage$input_tokens
+      }
+      if (!is.na(response$usage$output_tokens %||% NA)) {
+        .sparx_runtime_state$output_tokens <-
+          .sparx_runtime_state$output_tokens + response$usage$output_tokens
+      }
+    }
 
     # Record assistant turn (full content array — needed for tool_use continuity)
     messages <- c(messages, list(list(
@@ -138,8 +191,13 @@ run_agentic_turn <- function(messages,
     # Execute each tool, collect results
     tool_results <- list()
     for (call in tool_calls) {
-      result <- execute_tool(call$name, call$input)
-      err <- is_tool_error(result)
+      if (sparx_abort_requested()) {
+        result <- "ABORTED: user requested stop before this tool ran."
+        err <- TRUE
+      } else {
+        result <- execute_tool(call$name, call$input)
+        err <- is_tool_error(result)
+      }
       on_tool_result(call$name, call$id, result)
 
       # Check for embedded image payload (from inspect_plot)

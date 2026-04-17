@@ -124,6 +124,55 @@ chat_css <- function() {
     color: #9ca3af;
   }
 
+  /* Controls bar (toggles + token usage) */
+  .sparx-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 11px;
+  }
+  .sparx-mode-label {
+    color: #6b7280;
+    font-weight: 500;
+    margin-right: 4px;
+  }
+  .sparx-toggle {
+    padding: 2px 8px !important;
+    font-size: 10px !important;
+    line-height: 1.4 !important;
+    background: white !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 4px !important;
+    color: #4b5563 !important;
+    height: auto !important;
+  }
+  .sparx-toggle:hover {
+    background: #f3f4f6 !important;
+  }
+  .sparx-usage {
+    margin-left: auto;
+    color: #9ca3af;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 10px;
+  }
+  .sparx-send-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .sparx-stop {
+    display: none !important;
+  }
+  .sparx-streaming .sparx-stop {
+    display: inline-block !important;
+  }
+  .sparx-streaming #send {
+    display: none !important;
+  }
+
   /* Diff view */
   .sparx-diff {
     margin-top: 6px;
@@ -541,7 +590,8 @@ pretty_tool_name <- function(name) {
     fetch_url = "Fetching web page",
     git_status = "Checking git status",
     git_diff = "Reading git diff",
-    git_log = "Reading git log"
+    git_log = "Reading git log",
+    git_commit = "Creating git commit"
   )
   lbl <- labels[name]
   if (is.na(lbl)) name else unname(lbl)
@@ -584,6 +634,13 @@ cmd_enter_js <- function() {
     if (!el) return;
     navigator.clipboard.writeText(el.textContent);
   };
+
+  // Toggle Send/Stop visibility based on streaming state
+  if (window.Shiny && Shiny.addCustomMessageHandler) {
+    Shiny.addCustomMessageHandler('sparx_set_streaming', function(streaming) {
+      document.body.classList.toggle('sparx-streaming', !!streaming);
+    });
+  }
 
   // Auto-scroll thread on update
   var thread = null;

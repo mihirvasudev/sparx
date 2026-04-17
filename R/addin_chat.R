@@ -27,6 +27,18 @@ open_chat <- function() {
       right = miniUI::miniTitleBarButton("close", "Close", primary = FALSE),
       left = miniUI::miniTitleBarButton("clear", "Clear", primary = FALSE)
     ),
+    # Toggle + status bar
+    shiny::div(
+      class = "sparx-controls",
+      shiny::tags$span(class = "sparx-mode-label", "Modes:"),
+      shiny::actionButton("toggle_live", toggle_label("Live exec", FALSE),
+                          class = "sparx-toggle"),
+      shiny::actionButton("toggle_install", toggle_label("Auto-install", FALSE),
+                          class = "sparx-toggle"),
+      shiny::actionButton("toggle_git", toggle_label("Git writes", FALSE),
+                          class = "sparx-toggle"),
+      shiny::span(class = "sparx-usage", shiny::textOutput("token_display", inline = TRUE))
+    ),
     miniUI::miniContentPanel(
       shiny::div(
         class = "sparx-container",
@@ -47,8 +59,12 @@ open_chat <- function() {
           ),
           shiny::div(
             class = "sparx-input-actions",
-            shiny::actionButton("send", "Send", class = "btn-primary btn-sm"),
-            shiny::span(id = "sparx-hint", class = "sparx-hint", "Cmd/Ctrl+Enter")
+            shiny::div(
+              class = "sparx-send-group",
+              shiny::actionButton("send", "Send", class = "btn-primary btn-sm"),
+              shiny::actionButton("stop", "Stop", class = "btn-danger btn-sm sparx-stop")
+            ),
+            shiny::span(id = "sparx-hint", class = "sparx-hint", "Cmd/Ctrl+Enter to send")
           )
         )
       )
@@ -58,6 +74,54 @@ open_chat <- function() {
 
   server <- function(input, output, session) {
     # ── Reactive state ────────────────────────────────────
+
+    # ── Mode toggle state ──────────────────────────────────
+
+    live_on <- shiny::reactiveVal(isTRUE(getOption("sparx.live_execution", FALSE)))
+    install_on <- shiny::reactiveVal(isTRUE(getOption("sparx.auto_install", FALSE)))
+    git_on <- shiny::reactiveVal(isTRUE(getOption("sparx.allow_git", FALSE)))
+
+    # Sync toggles to options() so the tools pick them up
+    shiny::observe({ options(sparx.live_execution = live_on()) })
+    shiny::observe({ options(sparx.auto_install = install_on()) })
+    shiny::observe({ options(sparx.allow_git = git_on()) })
+
+    # Toggle buttons
+    shiny::observeEvent(input$toggle_live, {
+      new_val <- !live_on()
+      if (new_val) {
+        showToggleWarning("Live execution", session,
+          "Claude will now run code directly in your R session (state persists). Destructive patterns are still blocked.")
+      }
+      live_on(new_val)
+      shiny::updateActionButton(session, "toggle_live", label = toggle_label("Live exec", new_val))
+    })
+    shiny::observeEvent(input$toggle_install, {
+      new_val <- !install_on()
+      install_on(new_val)
+      shiny::updateActionButton(session, "toggle_install", label = toggle_label("Auto-install", new_val))
+    })
+    shiny::observeEvent(input$toggle_git, {
+      new_val <- !git_on()
+      git_on(new_val)
+      shiny::updateActionButton(session, "toggle_git", label = toggle_label("Git writes", new_val))
+    })
+
+    # Stop button
+    shiny::observeEvent(input$stop, {
+      sparx_request_abort()
+    })
+
+    # Token display (reactive: polls state every second)
+    token_signal <- shiny::reactiveTimer(1000, session)
+    output$token_display <- shiny::renderText({
+      token_signal()
+      i <- .sparx_runtime_state$input_tokens
+      o <- .sparx_runtime_state$output_tokens
+      if (i + o == 0) return("")
+      paste0("Tokens: ", format(i, big.mark = ","), " in, ",
+             format(o, big.mark = ","), " out")
+    })
 
     # Try to restore saved conversation for this project
     saved <- tryCatch(load_conversation(), error = function(e) NULL)
@@ -128,6 +192,7 @@ open_chat <- function() {
       thread_ui(c(thread_ui(), list(render_user_bubble(user_text))))
 
       is_streaming(TRUE)
+      session$sendCustomMessage("sparx_set_streaming", TRUE)
       current_assistant("")
       active_tool(NULL)
 
@@ -183,6 +248,7 @@ open_chat <- function() {
       messages(result$messages)
       active_tool(NULL)
       is_streaming(FALSE)
+      session$sendCustomMessage("sparx_set_streaming", FALSE)
 
       # Persist to disk for next session
       tryCatch(
@@ -211,6 +277,7 @@ open_chat <- function() {
       current_assistant("")
       active_tool(NULL)
       .sparx_todo_state$items <- list()
+      sparx_reset_tokens()
       tryCatch(clear_saved_conversation(), error = function(e) NULL)
     })
 
@@ -224,6 +291,23 @@ open_chat <- function() {
 }
 
 # ── Editor integration helpers ─────────────────────────────
+
+#' Compose a label for a toggle button showing current state
+#' @keywords internal
+toggle_label <- function(name, on) {
+  paste0(name, ": ", if (isTRUE(on)) "ON" else "off")
+}
+
+#' Show a one-time warning when the user enables a powerful toggle
+#' @keywords internal
+showToggleWarning <- function(feature, session, detail) {
+  shiny::showNotification(
+    paste0(feature, " enabled. ", detail),
+    type = "warning",
+    duration = 6,
+    session = session
+  )
+}
 
 #' Rebuild the rendered thread UI from a saved messages array
 #'
