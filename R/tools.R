@@ -219,7 +219,7 @@ tool_definitions <- function() {
       ),
       input_schema = list(
         type = "object",
-        properties = list(),
+        properties = setNames(list(), character(0)),
         required = list()
       )
     ),
@@ -272,7 +272,7 @@ tool_definitions <- function() {
       ),
       input_schema = list(
         type = "object",
-        properties = list(),
+        properties = setNames(list(), character(0)),
         required = list()
       )
     ),
@@ -374,7 +374,7 @@ tool_definitions <- function() {
       ),
       input_schema = list(
         type = "object",
-        properties = list(),
+        properties = setNames(list(), character(0)),
         required = list()
       )
     ),
