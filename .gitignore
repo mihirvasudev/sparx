@@ -1,0 +1,17 @@
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.Renviron
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# pkgdown
+docs/
+_pkgdown.yml

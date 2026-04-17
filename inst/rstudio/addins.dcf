@@ -1,0 +1,19 @@
+Name: Open sparx Chat
+Description: Open the sparx AI assistant in a chat panel
+Binding: open_chat
+Interactive: true
+
+Name: Explain Selection
+Description: Explain the selected code using sparx
+Binding: explain_selection
+Interactive: false
+
+Name: Fix Selection
+Description: Fix the selected code using sparx
+Binding: fix_selection
+Interactive: false
+
+Name: Improve Selection
+Description: Rewrite the selected code to be more idiomatic using sparx
+Binding: improve_selection
+Interactive: false

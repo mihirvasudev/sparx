@@ -1,0 +1,10 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.github$
+^\.vscode$
+^README\.Rmd$
+^CONTRIBUTING\.md$
+^docs$
+^_pkgdown\.yml$
+^dev$
+^\.Rbuildignore$
